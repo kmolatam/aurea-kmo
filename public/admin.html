@@ -1,0 +1,443 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AUREA Admin</title>
+  <link rel="stylesheet" href="/style.css?v=0.8.1" />
+</head>
+<body>
+  <div id="toast" class="toast"></div>
+
+  <section id="loginScreen" class="login-wrap">
+    <div class="card login-card">
+      <div class="brand" style="margin-bottom:18px;">
+        <div class="mark">A</div>
+        <div>
+          <div class="brand-title">AUREA</div>
+          <div class="brand-subtitle">Admin by KMO</div>
+        </div>
+      </div>
+      <h1 style="margin:0 0 8px;">Entrar al panel</h1>
+      <p style="color:var(--muted); margin-top:0;">Demo: usuario <strong>admin</strong> / contraseña <strong>aurea123</strong></p>
+      <form id="loginForm" class="form-grid">
+        <label>Usuario
+          <input class="input" id="username" autocomplete="username" value="admin" />
+        </label>
+        <label>Contraseña
+          <input class="input" id="password" type="password" autocomplete="current-password" value="aurea123" />
+        </label>
+        <button class="btn" type="submit">Entrar</button>
+      </form>
+    </div>
+  </section>
+
+  <section id="adminApp" class="admin-layout" style="display:none;">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="mark">A</div>
+        <div>
+          <div class="brand-title">AUREA</div>
+          <div class="brand-subtitle">by KMO</div>
+        </div>
+      </div>
+      <nav>
+        <button class="nav-btn active" data-section="dashboard">Dashboard</button>
+        <button class="nav-btn" data-section="commands">Comandas</button>
+        <button class="nav-btn" data-section="team">Equipo</button>
+        <button class="nav-btn" data-section="history">Historial</button>
+        <button class="nav-btn" data-section="menu">Menú</button>
+        <button class="nav-btn" data-section="tables">Mesas & QR</button>
+        <button class="nav-btn" data-section="crm">CRM WhatsApp</button>
+        <button class="nav-btn" data-section="whatsappOrders">WhatsApp Pedidos</button>
+        <button class="nav-btn" data-section="settings">Configuración</button>
+      </nav>
+      <a class="btn ghost" style="margin-top:18px; width:100%; text-align:center; display:block;" href="/staff.html" target="_blank">Panel meseros</a>
+      <a class="btn ghost" style="margin-top:10px; width:100%; text-align:center; display:block;" href="/kitchen.html" target="_blank">Pantalla cocina</a>
+      <button class="btn ghost" style="margin-top:10px; width:100%;" onclick="logout()">Salir</button>
+    </aside>
+
+    <main class="main">
+      <section id="dashboard" class="section active">
+        <h2>Centro de mando</h2>
+        <div class="grid">
+          <div class="col-3 stat"><strong id="statAlerts">0</strong><span>Alertas nuevas</span></div>
+          <div class="col-3 stat"><strong id="statOrders">0</strong><span>Comandas pendientes</span></div>
+          <div class="col-3 stat"><strong id="statTables">0</strong><span>Mesas activas</span></div>
+          <div class="col-3 stat"><strong id="statContacts">0</strong><span>WhatsApps captados</span></div>
+          <div class="col-6 card">
+            <h3 style="margin-top:0;">Alertas recientes</h3>
+            <div id="alertsList" class="list"></div>
+          </div>
+          <div class="col-6 card">
+            <h3 style="margin-top:0;">Comandas recientes</h3>
+            <div id="ordersMiniList" class="list"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="commands" class="section">
+        <div class="section-head">
+          <div>
+            <h2 style="margin-bottom:4px;">Comandas</h2>
+            <p class="muted" style="margin-top:0;">Pedido enviado → mesero confirma → cocina prepara → se entrega.</p>
+          </div>
+          <a class="btn secondary" href="/kitchen.html" target="_blank">Abrir cocina</a>
+        </div>
+        <div class="command-board">
+          <div class="card command-column">
+            <h3>Pendientes</h3>
+            <div id="commandsNew" class="list"></div>
+          </div>
+          <div class="card command-column">
+            <h3>Confirmadas</h3>
+            <div id="commandsConfirmed" class="list"></div>
+          </div>
+          <div class="card command-column">
+            <h3>Preparación / Listo</h3>
+            <div id="commandsProgress" class="list"></div>
+          </div>
+          <div class="card command-column">
+            <h3>Cerradas</h3>
+            <div id="commandsClosed" class="list"></div>
+          </div>
+        </div>
+      </section>
+
+
+      <section id="team" class="section">
+        <h2>Equipo en tiempo real</h2>
+        <p class="muted">Mide quién tomó cada mesa, tiempo de respuesta, comandas y clientes VIP captados.</p>
+        <div class="grid">
+          <div class="col-12 card">
+            <div style="display:flex; justify-content:space-between; gap:12px; align-items:center; flex-wrap:wrap;">
+              <div>
+                <h3 style="margin:0;">Mesas activas</h3>
+                <p class="muted" style="margin:6px 0 0;">En asignación libre, todos ven la mesa y quien la toma se queda asignado. En asignación por zona, AUREA la asigna según las mesas de cada mesero.</p>
+              </div>
+              <span id="assignmentModePill" class="pill">Asignación libre</span>
+            </div>
+            <div id="activeSessionsList" class="list" style="margin-top:14px;"></div>
+          </div>
+          <div class="col-12 card">
+            <h3 style="margin-top:0;">Rendimiento de meseros</h3>
+            <div id="staffStatsList" class="list"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="history" class="section">
+        <div class="section-head">
+          <div>
+            <h2 style="margin-bottom:4px;">Historial de mesas</h2>
+            <p class="muted" style="margin-top:0;">Mesas cerradas, venta estimada, tiempo de atención, mesero y cuentas separadas.</p>
+          </div>
+          <span class="pill" id="historyCountPill">0 cierres</span>
+        </div>
+        <div id="historyList" class="list"></div>
+      </section>
+
+      <section id="menu" class="section">
+        <h2>Menú editable</h2>
+        <div class="grid">
+          <div class="col-5 card">
+            <h3 id="menuFormTitle" style="margin-top:0;">Agregar producto</h3>
+            <form id="menuForm" class="form-grid">
+              <input id="itemEditingId" type="hidden" />
+              <label>Categoría
+                <select id="itemCategory"></select>
+              </label>
+              <label>Nombre
+                <input class="input" id="itemName" placeholder="Ej. Hamburguesa Aurea" />
+              </label>
+              <label>Descripción
+                <textarea id="itemDescription" placeholder="Descripción corta y vendible"></textarea>
+              </label>
+              <label>Precio
+                <input class="input" id="itemPrice" type="number" min="1" step="1" placeholder="165" />
+              </label>
+              <label>URL de imagen opcional
+                <input class="input" id="itemImageUrl" placeholder="https://..." />
+              </label>
+              <label class="check-row">
+                <input id="itemAvailable" type="checkbox" checked />
+                <span>Disponible</span>
+              </label>
+              <label class="check-row">
+                <input id="itemFeatured" type="checkbox" />
+                <span>Recomendado</span>
+              </label>
+              <div class="inline-actions">
+                <button class="btn" id="menuSubmitBtn" type="submit">Guardar producto</button>
+                <button class="btn ghost" id="cancelEditBtn" type="button" onclick="cancelMenuEdit()" style="display:none;">Cancelar edición</button>
+              </div>
+            </form>
+          </div>
+          <div class="col-7 card">
+            <div class="section-head">
+              <h3 style="margin:0;">Productos</h3>
+              <span class="pill">Editar / activar / desactivar</span>
+            </div>
+            <div id="menuList" class="list"></div>
+          </div>
+          <div class="col-12 card">
+            <h3 style="margin-top:0;">Categorías</h3>
+            <form id="categoryForm" class="form-grid" style="grid-template-columns: 1fr auto; align-items:end;">
+              <label>Nueva categoría
+                <input class="input" id="categoryName" placeholder="Ej. Postres" />
+              </label>
+              <button class="btn" type="submit">Agregar</button>
+            </form>
+            <div id="categoryList" class="list" style="margin-top:14px;"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="tables" class="section">
+        <h2>Mesas & QR</h2>
+        <div class="grid">
+          <div class="col-4 card">
+            <h3 style="margin-top:0;">Agregar mesa</h3>
+            <form id="tableForm" class="form-grid">
+              <label>Nombre de mesa
+                <input class="input" id="tableNameInput" placeholder="Ej. Mesa 4 / Terraza 1" />
+              </label>
+              <button class="btn" type="submit">Crear mesa</button>
+            </form>
+          </div>
+          <div class="col-8 card">
+            <div class="section-head">
+              <h3 style="margin:0;">QR por mesa</h3>
+              <span class="pill">Sin parpadeo automático</span>
+            </div>
+            <div id="tablesList" class="list"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="crm" class="section">
+        <h2>CRM WhatsApp</h2>
+        <div class="grid">
+          <div class="col-4 card">
+            <h3 style="margin-top:0;">Promo rápida</h3>
+            <p class="muted">Arma un mensaje y abre WhatsApp contacto por contacto. Para envío automático real, después conectamos WhatsApp Business API.</p>
+            <textarea id="promoMessage" placeholder="Ej. Hoy tenemos 2x1 en hamburguesas de 6 a 8 pm. Muestra este mensaje en caja."></textarea>
+            <div class="inline-actions" style="margin-top:12px;">
+              <button class="btn secondary" onclick="copyPhones()">Copiar teléfonos</button>
+              <button class="btn ghost" onclick="copyPromoMessage()">Copiar promo</button>
+              <a class="btn ghost" href="/api/admin/contacts/export.csv" target="_blank">Exportar CSV</a>
+            </div>
+          </div>
+          <div class="col-8 card">
+            <div class="section-head">
+              <h3 style="margin:0;">WhatsApps recaudados</h3>
+              <span class="pill" id="crmCountPill">0 contactos</span>
+            </div>
+            <div class="inline-actions" style="margin-bottom:12px;">
+              <button class="btn small secondary" onclick="setCrmFilter('all')">Todos</button>
+              <button class="btn small secondary" onclick="setCrmFilter('orders')">Con pedido</button>
+              <button class="btn small secondary" onclick="setCrmFilter('promos')">Acepta promos</button>
+              <button class="btn small secondary" onclick="setCrmFilter('scan')">Solo escaneo</button>
+            </div>
+            <div id="contactsList" class="list"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="whatsappOrders" class="section">
+        <div class="section-head">
+          <div>
+            <h2 style="margin-bottom:4px;">WhatsApp Pedidos</h2>
+            <p class="muted" style="margin-top:0;">Módulo legal-ready: registra pedidos que llegan por WhatsApp, conviértelos en comanda y ciérralos sin mezclar datos.</p>
+          </div>
+          <span class="pill" id="whatsappOrderCountPill">0 pedidos</span>
+        </div>
+        <div class="grid">
+          <div class="col-4 card">
+            <h3 style="margin-top:0;">QR de pedido por WhatsApp</h3>
+            <p class="muted">Este QR abre el WhatsApp oficial/configurado del restaurante con un mensaje inicial. Es estable y no usa WhatsApp Web.</p>
+            <label>Mensaje inicial
+              <textarea id="whatsappQrMessage" placeholder="Hola, quiero hacer un pedido."></textarea>
+            </label>
+            <div class="inline-actions" style="margin-top:12px;">
+              <button class="btn secondary" onclick="generateWhatsappClientQr()">Generar QR</button>
+              <a class="btn ghost" id="whatsappClientLink" href="#" target="_blank" style="display:none;">Abrir link</a>
+            </div>
+            <div id="whatsappClientQrBox" class="qr-preview-box" style="margin-top:14px;"></div>
+            <div class="known-customer" style="display:block; margin-top:14px;">
+              Para conexión automática real: WhatsApp Business Cloud API + webhooks + plantillas aprobadas.
+            </div>
+          </div>
+
+          <div class="col-8 card">
+            <div class="section-head">
+              <h3 style="margin:0;">Nuevo pedido WhatsApp</h3>
+              <span class="pill">Manual / API-ready</span>
+            </div>
+            <form id="whatsappOrderForm" class="form-grid">
+              <div class="grid" style="gap:12px;">
+                <label class="col-6">Cliente
+                  <input class="input" id="whatsappCustomerName" placeholder="Ej. Juan" />
+                </label>
+                <label class="col-6">WhatsApp del cliente
+                  <input class="input" id="whatsappCustomerPhone" inputmode="tel" placeholder="Ej. 6181234567" />
+                </label>
+                <label class="col-12">Mensaje recibido
+                  <textarea id="whatsappMessage" placeholder="Ej. Quiero 2 hamburguesas, 1 coca y unas papas."></textarea>
+                </label>
+                <label class="col-12">Pedido interpretado / notas para cocina
+                  <textarea id="whatsappItemsText" placeholder="Ej. 2 hamburguesas sin cebolla, 1 coca, 1 papas. Entrega a domicilio."></textarea>
+                </label>
+                <label class="col-6">Total estimado
+                  <input class="input" id="whatsappTotalEstimate" type="number" min="0" step="1" placeholder="Ej. 350" />
+                </label>
+                <label class="col-6">Forma de pago
+                  <select id="whatsappPaymentMethod">
+                    <option value="pending">Por definir</option>
+                    <option value="cash">Efectivo</option>
+                    <option value="card">Tarjeta</option>
+                    <option value="transfer">Transferencia</option>
+                  </select>
+                </label>
+                <label class="col-12">Dirección / notas de entrega
+                  <input class="input" id="whatsappAddress" placeholder="Dirección, referencia o mesa si aplica" />
+                </label>
+              </div>
+              <button class="btn" type="submit">Guardar pedido WhatsApp</button>
+            </form>
+          </div>
+
+          <div class="col-12 card">
+            <div class="section-head">
+              <h3 style="margin:0;">Bandeja de pedidos WhatsApp</h3>
+              <span class="pill">Crear · confirmar · mandar a cocina · cerrar</span>
+            </div>
+            <div id="whatsappOrdersList" class="list"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="settings" class="section">
+        <h2>Configuración</h2>
+        <div class="grid">
+          <div class="col-6 card">
+            <h3 style="margin-top:0;">Marca y datos del restaurante</h3>
+            <p class="muted">AUREA mantiene su base negro/dorado. El restaurante solo cambia logo y color de detalles.</p>
+            <form id="settingsForm" class="form-grid">
+              <label>Nombre del restaurante
+                <input class="input" id="restaurantName" />
+              </label>
+              <label>Subtítulo
+                <input class="input" id="restaurantSubtitle" />
+              </label>
+              <label>Texto si no hay logo
+                <input class="input" id="restaurantLogoText" />
+              </label>
+              <label>Logo del restaurante
+                <input class="input" id="restaurantLogoFile" type="file" accept="image/*" />
+              </label>
+              <div id="logoPreview" class="logo-preview">Sin logo cargado</div>
+              <label>Color de detalles
+                <input class="input" id="restaurantAccentColor" type="color" value="#c9a44c" />
+              </label>
+              <label>WhatsApp principal del restaurante
+                <input class="input" id="restaurantWhatsapp" placeholder="Ej. 6181234567" />
+              </label>
+              <label>Identificador interno del restaurante
+                <input class="input" id="restaurantInstanceSlug" placeholder="Ej. puerto-montt" />
+              </label>
+              <label>Dirección
+                <input class="input" id="restaurantAddress" />
+              </label>
+              <label>Horario
+                <input class="input" id="restaurantHours" />
+              </label>
+              <label>Texto de consentimiento CRM
+                <textarea id="restaurantCrmText" placeholder="Recibir promociones y actualizaciones del restaurante por WhatsApp."></textarea>
+              </label>
+              <label>Modo de operación
+                <select id="operationMode">
+                  <option value="alerts">Solo menú y alertas</option>
+                  <option value="orders">Menú + pedidos</option>
+                  <option value="commands">Menú + comandas internas</option>
+                  <option value="pos_layer">Capa sobre POS existente</option>
+                </select>
+              </label>
+              <label>Asignación de meseros
+                <select id="assignmentMode">
+                  <option value="free">Asignación libre</option>
+                  <option value="zone">Asignación por zona</option>
+                </select>
+              </label>
+              <div class="split-box">
+                <h3 style="margin:0;">WhatsApp Business oficial</h3>
+                <p class="muted mini-copy">Campos de preparación para Cloud API. No pegues tokens aquí; los tokens reales deben vivir en variables seguras del servidor.</p>
+                <label class="check-row">
+                  <input id="waOfficialEnabled" type="checkbox" />
+                  <span>Preparar conexión oficial para este restaurante</span>
+                </label>
+                <label>Display name
+                  <input class="input" id="waOfficialDisplayName" placeholder="Ej. Puerto Montt" />
+                </label>
+                <label>Business Portfolio ID
+                  <input class="input" id="waOfficialBusinessId" placeholder="Meta Business ID" />
+                </label>
+                <label>WABA ID
+                  <input class="input" id="waOfficialWabaId" placeholder="WhatsApp Business Account ID" />
+                </label>
+                <label>Phone Number ID
+                  <input class="input" id="waOfficialPhoneNumberId" placeholder="phone_number_id" />
+                </label>
+                <label>Webhook URL
+                  <input class="input" id="waOfficialWebhookUrl" placeholder="https://tu-dominio.com/webhooks/whatsapp" />
+                </label>
+                <label>Notas internas
+                  <textarea id="waOfficialNotes" placeholder="Ej. Número actual / número nuevo / pendiente de plantillas"></textarea>
+                </label>
+              </div>
+              <button class="btn" type="submit">Guardar restaurante</button>
+            </form>
+          </div>
+
+          <div class="col-6 card">
+            <h3 style="margin-top:0;">Meseros y cocina</h3>
+            <p class="muted">Agrega meseros/cocina con WhatsApp y PIN. El PIN sirve para entrar al panel ligero sin crear cuentas completas.</p>
+            <form id="staffForm" class="form-grid">
+              <label>Nombre
+                <input class="input" id="staffName" placeholder="Ej. Carlos" />
+              </label>
+              <label>Rol
+                <input class="input" id="staffRole" placeholder="Ej. Mesero / Cocina / Capitán" value="Mesero" />
+              </label>
+              <label>WhatsApp del mesero
+                <input class="input" id="staffWhatsapp" placeholder="Ej. 6181234567" />
+              </label>
+              <label>PIN operativo
+                <input class="input" id="staffPin" inputmode="numeric" placeholder="Ej. 4321" />
+              </label>
+              <div>
+                <label style="display:block; margin-bottom:8px;">Mesas asignadas para modo por zona</label>
+                <div id="staffZoneTables" class="check-grid"></div>
+              </div>
+              <button class="btn" type="submit">Agregar staff</button>
+            </form>
+            <div class="item" style="margin:14px 0;">
+              <div>
+                <div class="item-title">Panel meseros y cocina</div>
+                <div class="item-meta">Abren /staff.html o /kitchen.html y entran con su PIN.</div>
+              </div>
+              <div class="inline-actions end">
+                <a class="btn secondary small" href="/staff.html" target="_blank">Meseros</a>
+                <a class="btn secondary small" href="/kitchen.html" target="_blank">Cocina</a>
+              </div>
+            </div>
+            <div id="staffList" class="list"></div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </section>
+
+  <script src="/admin.js?v=0.8.1"></script>
+</body>
+</html>

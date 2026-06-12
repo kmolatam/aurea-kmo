@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AUREA Cocina</title>
+  <link rel="stylesheet" href="/style.css?v=0.8.1" />
+</head>
+<body>
+  <div id="toast" class="toast"></div>
+
+  <section id="kitchenLogin" class="login-wrap">
+    <div class="card login-card">
+      <div class="brand" style="margin-bottom:18px;">
+        <div class="mark">A</div>
+        <div>
+          <div class="brand-title">AUREA</div>
+          <div class="brand-subtitle">Pantalla de cocina</div>
+        </div>
+      </div>
+      <h1 style="margin:0 0 8px;">Entrar con PIN</h1>
+      <p class="muted">Puede usar el mismo PIN de capitán, mesero o cocina.</p>
+      <form id="kitchenLoginForm" class="form-grid">
+        <label>PIN operativo
+          <input class="input" id="kitchenPinLogin" inputmode="numeric" placeholder="Ej. 1234" />
+        </label>
+        <button class="btn" type="submit">Entrar</button>
+      </form>
+    </div>
+  </section>
+
+  <main id="kitchenApp" class="main kitchen-main" style="display:none;">
+    <section class="client-hero">
+      <div class="section-head">
+        <div>
+          <div class="pill" id="kitchenStaffName">Cocina</div>
+          <h1 id="kitchenRestaurant">AUREA</h1>
+          <p class="muted" style="line-height:1.5; margin:0;">Comandas visuales: pendientes, preparación y listas.</p>
+        </div>
+        <div class="inline-actions end">
+          <a class="btn secondary small" href="/staff.html" target="_blank">Meseros</a>
+          <button class="btn ghost small" onclick="kitchenLogout()">Salir</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="grid">
+      <div class="col-4 card command-column">
+        <h2>Pendientes</h2>
+        <div id="kitchenNew" class="list"></div>
+      </div>
+      <div class="col-4 card command-column">
+        <h2>En preparación</h2>
+        <div id="kitchenProgress" class="list"></div>
+      </div>
+      <div class="col-4 card command-column">
+        <h2>Listas</h2>
+        <div id="kitchenReady" class="list"></div>
+      </div>
+    </section>
+  </main>
+
+  <script src="/kitchen.js?v=0.8.1"></script>
+</body>
+</html>

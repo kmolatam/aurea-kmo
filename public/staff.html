@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AUREA Staff</title>
+  <link rel="stylesheet" href="/style.css?v=0.8.1" />
+</head>
+<body>
+  <div id="toast" class="toast"></div>
+
+  <section id="staffLogin" class="login-wrap">
+    <div class="card login-card">
+      <div class="brand" style="margin-bottom:18px;">
+        <div class="mark">A</div>
+        <div>
+          <div class="brand-title">AUREA</div>
+          <div class="brand-subtitle">Panel de meseros</div>
+        </div>
+      </div>
+      <h1 style="margin:0 0 8px;">Entrar con PIN</h1>
+      <p class="muted">Usa el PIN que el administrador configuró para el mesero.</p>
+      <form id="staffLoginForm" class="form-grid">
+        <label>PIN operativo
+          <input class="input" id="staffPinLogin" inputmode="numeric" placeholder="Ej. 1234" />
+        </label>
+        <button class="btn" type="submit">Entrar</button>
+      </form>
+    </div>
+  </section>
+
+  <main id="staffApp" class="client-page" style="display:none;">
+    <section class="client-hero">
+      <div class="pill" id="staffName">Mesero</div>
+      <h1 id="staffRestaurant">AUREA</h1>
+      <p class="muted" style="line-height:1.5; margin:0;">Alertas y comandas en tiempo real desde cualquier celular, sin instalar app.</p>
+      <div class="inline-actions" style="margin-top:14px;">
+        <a class="btn secondary small" href="/kitchen.html" target="_blank">Cocina</a>
+        <button class="btn ghost small" onclick="staffLogout()">Salir</button>
+      </div>
+    </section>
+
+
+    <section class="card" style="margin-bottom:14px;">
+      <div class="section-head">
+        <h2 style="margin:0;">Mis mesas</h2>
+        <span class="pill" id="staffTableCount">0 activas</span>
+      </div>
+      <div id="staffSessions" class="list" style="margin-top:14px;"></div>
+    </section>
+
+    <section class="card" style="margin-bottom:14px;">
+      <div class="section-head">
+        <h2 style="margin:0;">Mi rendimiento</h2>
+        <span class="pill">en vivo</span>
+      </div>
+      <div id="staffStats" class="staff-metrics" style="margin-top:14px;"></div>
+    </section>
+    <section class="card" style="margin-bottom:14px;">
+      <div class="section-head">
+        <h2 style="margin:0;">Alertas</h2>
+        <span class="pill" id="staffAlertCount">0 nuevas</span>
+      </div>
+      <div id="staffAlerts" class="list" style="margin-top:14px;"></div>
+    </section>
+
+    <section class="card">
+      <div class="section-head">
+        <h2 style="margin:0;">Comandas</h2>
+        <span class="pill" id="staffOrderCount">0 activas</span>
+      </div>
+      <div id="staffOrders" class="list" style="margin-top:14px;"></div>
+    </section>
+  </main>
+
+
+  <div id="staffOrderModal" class="modal-backdrop">
+    <div class="modal">
+      <div class="section-head">
+        <div>
+          <h2 style="margin:0;">Levantar pedido</h2>
+          <p id="staffOrderTableName" class="muted" style="margin:6px 0 0;">Mesa</p>
+        </div>
+        <button class="btn ghost small" onclick="closeStaffOrderModal()">Cerrar</button>
+      </div>
+
+      <p class="muted" style="line-height:1.5; margin-top:0;">Modo asistido: úsalo cuando el cliente no quiera pedir desde el QR. La comanda quedará ligada a tu mesa y a tu rendimiento.</p>
+
+      <label style="margin-bottom:12px;">Nota general de la comanda
+        <textarea id="staffOrderNote" class="input" placeholder="Ej. Todo junto, sin cubiertos, cliente pidió rápido..."></textarea>
+      </label>
+
+      <div id="staffOrderItems" class="list"></div>
+
+      <div class="inline-actions end" style="margin-top:16px; position:sticky; bottom:0; background:var(--panel); padding-top:12px;">
+        <button class="btn ghost" onclick="closeStaffOrderModal()">Cancelar</button>
+        <button class="btn success" onclick="submitStaffOrder()">Enviar comanda</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/staff.js?v=0.8.1"></script>
+</body>
+</html>

@@ -1,0 +1,14 @@
+{
+  "name": "aurea-by-kmo-mvp",
+  "version": "0.8.1",
+  "description": "AUREA by KMO - MVP v0.8.1 con base WhatsApp CRM legal-ready sobre estilo 0.8",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.3",
+    "express-session": "^1.18.0",
+    "qrcode": "^1.5.3"
+  }
+}

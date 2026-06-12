@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AUREA Mesa</title>
+  <link rel="stylesheet" href="/style.css?v=0.8.1" />
+</head>
+<body>
+  <div id="toast" class="toast"></div>
+
+  <main class="client-page">
+    <section class="client-hero">
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
+        <div>
+          <div class="pill" id="tableName">Mesa</div>
+          <h1 id="restaurantName">AUREA</h1>
+        </div>
+        <div id="restaurantLogo" class="restaurant-logo-mini">A</div>
+      </div>
+      <p id="restaurantSubtitle" style="color: var(--muted); line-height:1.5; margin:0;"></p>
+      <div id="knownCustomer" class="known-customer" style="display:none;"></div>
+    </section>
+
+    <section class="quick-actions expanded">
+      <button onclick="sendAlert('waiter')">🙋‍♂️ Mesero <span>Necesito atención</span></button>
+      <button onclick="openSmartBill()">🧾 Cuenta <span>Total, propina y terminal</span></button>
+      <button onclick="openQuickRequest()">✨ Necesito algo <span>Salsa, servilletas, carga...</span></button>
+      <button onclick="openRepeatOrder()">🔁 Repetir <span>Otra ronda o producto</span></button>
+      <button onclick="openTakeoutRequest()">🥡 Para llevar <span>Empaque o bolsa</span></button>
+      <button onclick="openFeedback()">⭐ Calificar <span>Ayúdanos a mejorar</span></button>
+    </section>
+
+    <div class="category-row" id="categories"></div>
+    <section id="menuList"></section>
+  </main>
+
+  <div id="cartBar" class="cart-bar">
+    <div>
+      <strong id="cartCount">0 productos</strong>
+      <div class="item-meta" id="cartTotal">$0</div>
+    </div>
+    <button class="btn" onclick="openCart()">Enviar pedido</button>
+  </div>
+
+  <div id="welcomeBackdrop" class="modal-backdrop">
+    <div class="modal">
+      <div class="brand" style="margin-bottom:14px;">
+        <div class="mark">A</div>
+        <div>
+          <div class="brand-title">AUREA</div>
+          <div class="brand-subtitle">by KMO</div>
+        </div>
+      </div>
+      <h2 style="margin:0 0 8px;">Conviértete en Cliente VIP</h2>
+      <p class="muted" style="line-height:1.6;">Deja tu WhatsApp para recibir beneficios exclusivos, actualizaciones de tu pedido, cortesías, cumpleaños y promociones especiales sin bajar ninguna app.</p>
+      <div class="form-grid">
+        <label>Nombre opcional
+          <input class="input" id="leadName" placeholder="Ej. Eduardo" />
+        </label>
+        <label>WhatsApp
+          <input class="input" id="leadPhone" inputmode="tel" placeholder="Ej. 6181234567" />
+        </label>
+        <label class="check-row">
+          <input id="leadOptIn" type="checkbox" checked />
+          <span id="leadConsentText">Acepto recibir beneficios VIP, promociones y actualizaciones por WhatsApp.</span>
+        </label>
+        <label class="check-row">
+          <input id="leadSplitMode" type="checkbox" onchange="toggleLeadDiners()" />
+          <span>Vamos a pedir con cuentas separadas</span>
+        </label>
+        <label id="leadDinersWrap" style="display:none;">Nombres para separar cuenta
+          <input class="input" id="leadDiners" placeholder="Ej. Eduardo, Joel, Ambrosio" />
+        </label>
+        <div class="inline-actions">
+          <button class="btn" onclick="continueInWeb()">Unirme y continuar</button>
+          <button class="btn secondary" onclick="continueInWhatsApp()">Unirme por WhatsApp</button>
+          <button class="btn ghost" onclick="skipLead()">Continuar sin unirme</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="modalBackdrop" class="modal-backdrop">
+    <div class="modal">
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:12px;">
+        <h2 style="margin:0;">Tu pedido</h2>
+        <button class="btn ghost small" onclick="closeCart()">Cerrar</button>
+      </div>
+      <div id="cartLines" class="list" style="margin-top:14px;"></div>
+      <div class="form-grid" style="margin-top:16px;">
+        <label>Nombre opcional
+          <input class="input" id="customerName" placeholder="Ej. Eduardo" />
+        </label>
+        <label>WhatsApp Cliente VIP
+          <input class="input" id="customerPhone" inputmode="tel" placeholder="Ej. 6181234567" />
+        </label>
+        <label class="check-row">
+          <input id="orderOptIn" type="checkbox" checked />
+          <span>Acepto recibir beneficios VIP, promociones y actualizaciones por WhatsApp.</span>
+        </label>
+        <div class="split-box">
+          <label class="check-row">
+            <input id="orderSplitMode" type="checkbox" onchange="toggleOrderSplitMode()" />
+            <span>Cuentas separadas</span>
+          </label>
+          <label id="orderDinersWrap" style="display:none;">Personas de la mesa
+            <input class="input" id="orderDiners" placeholder="Ej. Eduardo, Joel, Ambrosio" onblur="updateDinersFromInput('order')" />
+          </label>
+          <button class="btn secondary small" type="button" onclick="updateDinersFromInput('order')">Actualizar personas</button>
+          <p class="muted mini-copy">Si asignas cada producto a una persona, AUREA prepara el desglose para el final.</p>
+        </div>
+        <label>Nota general
+          <textarea id="orderNote" placeholder="Ej. Sin cebolla, todo junto, etc."></textarea>
+        </label>
+        <button class="btn" onclick="submitOrder()">Confirmar pedido</button>
+      </div>
+    </div>
+  </div>
+
+
+  <div id="billBackdrop" class="modal-backdrop">
+    <div class="modal bill-modal">
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:12px;">
+        <div>
+          <h2 style="margin:0;">Cuenta inteligente</h2>
+          <p class="muted" style="margin:5px 0 0;">Revisa tu cuenta estimada antes de pedirla.</p>
+        </div>
+        <button class="btn ghost small" onclick="closeSmartBill()">Cerrar</button>
+      </div>
+
+      <div id="billSummaryBox" class="order-status-box"></div>
+
+      <div class="form-grid" style="margin-top:16px;">
+        <div class="split-box">
+          <label class="check-row">
+            <input id="billSplitMode" type="checkbox" onchange="toggleBillSplitMode()" />
+            <span>Revisar como cuentas separadas</span>
+          </label>
+          <label id="billDinersWrap" style="display:none;">Personas de la mesa
+            <input class="input" id="billDiners" placeholder="Ej. Eduardo, Joel, Ambrosio" onblur="updateDinersFromInput('bill')" />
+          </label>
+          <button class="btn secondary small" type="button" onclick="updateDinersFromInput('bill')">Actualizar personas</button>
+          <p class="muted mini-copy">Puedes ajustar nombres antes de pedir la cuenta. El mesero confirmará el total final.</p>
+        </div>
+        <div>
+          <label style="display:block; margin-bottom:8px;">Propina</label>
+          <div class="tip-grid">
+            <button class="btn secondary small" data-tip-button="0" onclick="selectBillTip(0)">Sin propina</button>
+            <button class="btn secondary small" data-tip-button="10" onclick="selectBillTip(10)">10%</button>
+            <button class="btn secondary small" data-tip-button="15" onclick="selectBillTip(15)">15%</button>
+            <button class="btn secondary small" data-tip-button="20" onclick="selectBillTip(20)">20%</button>
+          </div>
+        </div>
+        <label>Otra propina en pesos
+          <input class="input" id="billCustomTip" type="number" min="0" step="1" placeholder="Ej. 50" oninput="renderBillSummary()" />
+        </label>
+        <label>¿Cómo quieres pagar?
+          <select id="billPaymentMethod" onchange="onPaymentMethodChange()">
+            <option value="card">Tarjeta / terminal</option>
+            <option value="cash">Efectivo</option>
+            <option value="transfer">Transferencia</option>
+            <option value="split">Cada quien paga lo suyo</option>
+            <option value="pending">Todavía no sé</option>
+          </select>
+        </label>
+        <label class="check-row">
+          <input id="billBringTerminal" type="checkbox" checked />
+          <span>Traer terminal</span>
+        </label>
+        <div class="form-block">
+          <div class="form-label">¿Cuándo quieres la cuenta?</div>
+          <div class="choice-grid bill-when-grid" id="billWhenOptions">
+            <label class="choice-check active">
+              <input type="radio" name="billWhen" value="0" checked onchange="setBillWhenChoice(this)" />
+              <span>Ahora</span>
+            </label>
+            <label class="choice-check">
+              <input type="radio" name="billWhen" value="5" onchange="setBillWhenChoice(this)" />
+              <span>En 5 minutos</span>
+            </label>
+            <label class="choice-check">
+              <input type="radio" name="billWhen" value="10" onchange="setBillWhenChoice(this)" />
+              <span>En 10 minutos</span>
+            </label>
+          </div>
+        </div>
+        <label>Nombre opcional
+          <input class="input" id="billCustomerName" placeholder="Ej. Eduardo" />
+        </label>
+        <label>WhatsApp Cliente VIP
+          <input class="input" id="billCustomerPhone" inputmode="tel" placeholder="Ej. 6181234567" />
+        </label>
+        <label class="check-row">
+          <input id="billOptIn" type="checkbox" checked />
+          <span>Acepto recibir beneficios VIP, promociones y actualizaciones por WhatsApp.</span>
+        </label>
+        <label>Nota para el mesero
+          <textarea id="billNote" placeholder="Ej. Traer terminal, pagaremos separado, uno paga en efectivo y otro con tarjeta..."></textarea>
+        </label>
+        <button class="btn" onclick="submitBillRequest()">Solicitar cuenta</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="orderStatusBackdrop" class="modal-backdrop">
+    <div class="modal">
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:12px;">
+        <h2 style="margin:0;">Estado de tu pedido</h2>
+        <button class="btn ghost small" onclick="closeOrderStatus()">Cerrar</button>
+      </div>
+      <div id="orderStatusBox" class="order-status-box"></div>
+    </div>
+  </div>
+
+  <div id="quickRequestBackdrop" class="modal-backdrop">
+    <div class="modal">
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:12px;">
+        <div>
+          <h2 style="margin:0;">Necesito algo</h2>
+          <p class="muted" style="margin:5px 0 0;">Elige una o varias opciones y las mandamos al staff.</p>
+        </div>
+        <button class="btn ghost small" onclick="closeQuickRequest()">Cerrar</button>
+      </div>
+      <div class="service-grid" id="quickRequestOptions" style="margin-top:16px;"></div>
+      <label style="margin-top:14px;">Otro detalle
+        <textarea id="quickRequestNote" placeholder="Ej. Salsa aparte, mesa sucia, necesitamos otro plato..."></textarea>
+      </label>
+      <button class="btn" style="margin-top:12px; width:100%;" onclick="submitQuickRequest()">Enviar solicitud</button>
+    </div>
+  </div>
+
+  <div id="repeatBackdrop" class="modal-backdrop">
+    <div class="modal">
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:12px;">
+        <div>
+          <h2 style="margin:0;">Repetir pedido</h2>
+          <p class="muted" style="margin:5px 0 0;">Selecciona lo que quieres pedir otra vez.</p>
+        </div>
+        <button class="btn ghost small" onclick="closeRepeatOrder()">Cerrar</button>
+      </div>
+      <div id="repeatItems" class="list" style="margin-top:16px;"></div>
+      <label style="margin-top:14px;">Nota opcional
+        <textarea id="repeatNote" placeholder="Ej. Igual que la vez pasada, sin cebolla, otra ronda..."></textarea>
+      </label>
+      <button class="btn" style="margin-top:12px; width:100%;" onclick="submitRepeatOrder()">Enviar repetición</button>
+    </div>
+  </div>
+
+  <div id="takeoutBackdrop" class="modal-backdrop">
+    <div class="modal">
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:12px;">
+        <div>
+          <h2 style="margin:0;">Para llevar</h2>
+          <p class="muted" style="margin:5px 0 0;">Pide empaque antes de que llegue el mesero.</p>
+        </div>
+        <button class="btn ghost small" onclick="closeTakeoutRequest()">Cerrar</button>
+      </div>
+      <div class="choice-grid takeout-grid" style="margin-top:16px;">
+        <label class="choice-check active"><input type="radio" name="takeoutType" value="Todo lo que sobró" checked onchange="setChoiceActive(this)"><span>Todo lo que sobró</span></label>
+        <label class="choice-check"><input type="radio" name="takeoutType" value="Solo algunos platillos" onchange="setChoiceActive(this)"><span>Solo algunos platillos</span></label>
+        <label class="choice-check"><input type="radio" name="takeoutType" value="Necesito bolsa o recipiente" onchange="setChoiceActive(this)"><span>Bolsa / recipiente</span></label>
+      </div>
+      <label style="margin-top:14px;">Nota para el mesero
+        <textarea id="takeoutNote" placeholder="Ej. Solo la hamburguesa de Joel, pedir 2 recipientes..."></textarea>
+      </label>
+      <button class="btn" style="margin-top:12px; width:100%;" onclick="submitTakeoutRequest()">Solicitar para llevar</button>
+    </div>
+  </div>
+
+  <div id="feedbackBackdrop" class="modal-backdrop">
+    <div class="modal">
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:12px;">
+        <div>
+          <h2 style="margin:0;">¿Cómo va tu experiencia?</h2>
+          <p class="muted" style="margin:5px 0 0;">Si algo no va bien, avisamos al equipo antes de que te vayas.</p>
+        </div>
+        <button class="btn ghost small" onclick="closeFeedback()">Cerrar</button>
+      </div>
+      <div class="rating-row" style="margin-top:16px;">
+        <button class="rating-btn" data-rating="1" onclick="selectRating(1)">😡</button>
+        <button class="rating-btn" data-rating="2" onclick="selectRating(2)">😕</button>
+        <button class="rating-btn" data-rating="3" onclick="selectRating(3)">😐</button>
+        <button class="rating-btn" data-rating="4" onclick="selectRating(4)">🙂</button>
+        <button class="rating-btn active" data-rating="5" onclick="selectRating(5)">😍</button>
+      </div>
+      <label style="margin-top:14px;">Comentario opcional
+        <textarea id="feedbackNote" placeholder="Ej. Todo excelente / tardó la comida / falta atención..."></textarea>
+      </label>
+      <button class="btn" style="margin-top:12px; width:100%;" onclick="submitFeedback()">Enviar calificación</button>
+    </div>
+  </div>
+
+  <script src="/table.js?v=0.8.1"></script>
+</body>
+</html>
