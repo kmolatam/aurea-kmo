@@ -1,0 +1,54 @@
+{
+  "restaurant": {
+    "name": "AUREA Demo Restaurant",
+    "subtitle": "Menú, pedidos y atención desde cada mesa.",
+    "logoText": "AUREA",
+    "whatsapp": "6180000000",
+    "address": "Durango, México",
+    "hours": "Lunes a domingo · 12:00 PM - 11:00 PM",
+    "primaryColor": "#c9a44c",
+    "crmOptInText": "Acepto recibir beneficios VIP, promociones y actualizaciones del restaurante por WhatsApp.",
+    "accentColor": "#c9a44c",
+    "logoDataUrl": "",
+    "operationMode": "commands",
+    "assignmentMode": "free",
+    "instanceSlug": "aurea-demo-restaurant",
+    "whatsappOfficial": {
+      "enabled": false,
+      "displayName": "AUREA Demo Restaurant",
+      "businessPortfolioId": "",
+      "wabaId": "",
+      "phoneNumberId": "",
+      "status": "not_connected",
+      "webhookUrl": "",
+      "notes": ""
+    }
+  },
+  "tables": [
+    { "id": "mesa-1", "name": "Mesa 1" },
+    { "id": "mesa-2", "name": "Mesa 2" },
+    { "id": "mesa-3", "name": "Mesa 3" }
+  ],
+  "categories": [
+    { "id": "cat-entradas", "name": "Entradas" },
+    { "id": "cat-fuertes", "name": "Platos fuertes" },
+    { "id": "cat-bebidas", "name": "Bebidas" }
+  ],
+  "menuItems": [
+    { "id": "item-papas", "categoryId": "cat-entradas", "name": "Papas de la casa", "description": "Papas crujientes con salsa especial.", "price": 95, "imageUrl": "", "available": true, "featured": true },
+    { "id": "item-burger", "categoryId": "cat-fuertes", "name": "Hamburguesa Aurea", "description": "Carne, queso, tocino y aderezo de la casa.", "price": 165, "imageUrl": "", "available": true, "featured": true },
+    { "id": "item-limonada", "categoryId": "cat-bebidas", "name": "Limonada mineral", "description": "Limonada fresca con agua mineral.", "price": 45, "imageUrl": "", "available": true, "featured": false }
+  ],
+  "alerts": [],
+  "orders": [],
+  "contacts": [],
+  "billRequests": [],
+  "whatsappOrders": [],
+  "staff": [
+    { "id": "staff-demo", "name": "Capitán de meseros", "role": "Capitán", "whatsapp": "6180000000", "pin": "1234", "active": true, "createdAt": "2026-06-11T00:00:00.000Z", "assignedTableIds": [], "stats": {} }
+  ],
+  "counters": { "command": 0, "whatsapp": 0 },
+  "tableSessions": [],
+  "feedback": [],
+  "tableClosures": []
+}
