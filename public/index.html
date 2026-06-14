@@ -4,48 +4,62 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>AUREA by KMO</title>
-  <link rel="stylesheet" href="/style.css?v=0.8.1" />
+  <link rel="stylesheet" href="/style.css?v=0.8.3" />
 </head>
 <body>
   <main class="shell">
     <header class="topbar">
       <div class="brand">
-        <div class="mark">A</div>
+        <img class="brand-logo" src="/aurea-logo.svg" alt="AUREA logo" />
         <div>
           <div class="brand-title">AUREA</div>
           <div class="brand-subtitle">by KMO</div>
         </div>
       </div>
-      <a class="btn secondary" href="/admin.html">Entrar al panel</a>
+      <a class="btn secondary" href="/admin.html">Login</a>
     </header>
 
-    <section class="hero">
+    <section class="hero hero-portals">
       <div>
         <div class="badge">✦ Sistema QR para restaurantes</div>
         <h1>Cada mesa, conectada.</h1>
         <p>
           AUREA convierte el QR de cada mesa en un centro de atención: menú,
-          pedidos, pedir cuenta, llamar al mesero, solicitar carga y guardar clientes.
+          comandas, pedir cuenta, llamar al mesero y operación en tiempo real.
         </p>
         <div class="actions">
-          <a class="btn" href="/admin.html">Abrir demo admin</a>
-          <a class="btn secondary" href="/t/mesa-1">Ver demo mesa 1</a>
+          <a class="btn" href="/staff.html">Portal meseros</a>
+          <a class="btn secondary" href="/kitchen.html">Portal cocina</a>
+          <a class="btn secondary" href="/admin.html">Portal administrador</a>
+        </div>
+        <div class="actions actions-small">
+          <a class="btn ghost" href="/admin.html">Login</a>
+          <a class="btn ghost" href="mailto:vexmexico@icloud.com?subject=AUREA%20by%20KMO">By KMO</a>
         </div>
       </div>
 
-      <div class="mock-phone">
-        <div class="phone-screen">
-          <div class="phone-header">
-            <div class="pill">Mesa 3</div>
-            <h2>AUREA Demo Restaurant</h2>
-            <p style="color: var(--muted); margin: 0;">Menú, pedidos y atención desde tu mesa.</p>
-          </div>
-          <div class="phone-grid">
-            <div class="phone-tile"><strong>Ver menú</strong><span>Fotos, precios y categorías.</span></div>
-            <div class="phone-tile"><strong>Ordenar</strong><span>Pedido directo al panel.</span></div>
-            <div class="phone-tile"><strong>Pedir cuenta</strong><span>Alerta instantánea.</span></div>
-            <div class="phone-tile"><strong>Llamar mesero</strong><span>Sin levantar la mano.</span></div>
-          </div>
+      <div class="portal-panel card">
+        <div class="portal-grid">
+          <a class="portal-card" href="/staff.html">
+            <span class="portal-icon">👨‍🍳</span>
+            <strong>Portal meseros</strong>
+            <span>Alertas, mesas activas y comandas al instante.</span>
+          </a>
+          <a class="portal-card" href="/kitchen.html">
+            <span class="portal-icon">🔥</span>
+            <strong>Portal cocina</strong>
+            <span>Flujo visual de pendientes, preparación y listos.</span>
+          </a>
+          <a class="portal-card" href="/admin.html">
+            <span class="portal-icon">🛠️</span>
+            <strong>Portal administrador</strong>
+            <span>Menú, equipo, mesas, QR y métricas operativas.</span>
+          </a>
+          <a class="portal-card portal-card-kmo" href="mailto:vexmexico@icloud.com?subject=AUREA%20by%20KMO">
+            <span class="portal-icon">✦</span>
+            <strong>By KMO</strong>
+            <span>Desarrollado para operar restaurantes con rapidez y estilo.</span>
+          </a>
         </div>
       </div>
     </section>

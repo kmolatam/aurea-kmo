@@ -1,7 +1,7 @@
 {
   "name": "aurea-by-kmo-mvp",
-  "version": "0.8.1",
-  "description": "AUREA by KMO - MVP v0.8.1 con base WhatsApp CRM legal-ready sobre estilo 0.8",
+  "version": "0.8.4-superadmin",
+  "description": "AUREA by KMO - MVP La Lomita con portal super admin para generar clientes",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"

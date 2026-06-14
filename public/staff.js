@@ -1,7 +1,10 @@
 let staffDb = null;
 let refreshTimer = null;
 let currentStaffOrderTableId = null;
-const STAFF_JS_VERSION = '0.8.0';
+const STAFF_JS_VERSION = '0.8.3';
+let notificationsBaselineReady = false;
+const seenAlertIds = new Set();
+const seenOrderIds = new Set();
 
 function money(value) {
   return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(value || 0);
@@ -80,6 +83,10 @@ async function checkStaffSession() {
 function showStaffApp() {
   document.getElementById('staffLogin').style.display = 'none';
   document.getElementById('staffApp').style.display = 'block';
+  updateNotificationPrompt();
+  if (canUseNotifications() && Notification.permission !== 'granted') {
+    toast('Tip: activa notificaciones para recibir comandas y alertas en tiempo real.');
+  }
   loadStaffData();
   if (!refreshTimer) refreshTimer = setInterval(loadStaffData, 4000);
 }
@@ -107,8 +114,81 @@ function renderStaff() {
   renderStaffStats();
   renderAlerts();
   renderOrders();
+  maybeNotifyStaff();
+  updateNotificationPrompt();
 }
 
+
+
+function canUseNotifications() {
+  return 'Notification' in window && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1');
+}
+
+function updateNotificationPrompt() {
+  const box = document.getElementById('notificationPrompt');
+  const btn = document.getElementById('enableNotificationsBtn');
+  if (!box || !btn) return;
+  if (!canUseNotifications()) {
+    box.style.display = 'block';
+    btn.disabled = true;
+    btn.textContent = 'Requiere HTTPS';
+    return;
+  }
+  if (Notification.permission === 'granted') {
+    box.style.display = 'none';
+    return;
+  }
+  box.style.display = 'block';
+  btn.disabled = Notification.permission === 'denied';
+  btn.textContent = Notification.permission === 'denied' ? 'Bloqueadas en navegador' : 'Activar';
+}
+
+async function enableStaffNotifications() {
+  if (!canUseNotifications()) return toast('Las notificaciones requieren HTTPS. Usa el dominio seguro de AUREA.');
+  const permission = await Notification.requestPermission();
+  updateNotificationPrompt();
+  if (permission === 'granted') {
+    new Notification('AUREA activado', { body: 'Te avisaremos cuando entre una nueva comanda o alerta.' });
+    toast('Notificaciones activadas');
+  } else if (permission === 'denied') {
+    toast('El navegador bloqueó notificaciones. Actívalas desde configuración del sitio.');
+  }
+}
+
+function notify(title, body, tag) {
+  if (!canUseNotifications() || Notification.permission !== 'granted') return;
+  try {
+    new Notification(title, { body, tag, renotify: true });
+  } catch (error) {
+    console.warn('No se pudo enviar notificación', error);
+  }
+}
+
+function maybeNotifyStaff() {
+  if (!staffDb) return;
+  const activeAlerts = (staffDb.alerts || []).filter(alert => ['new'].includes(alert.status));
+  const activeOrders = (staffDb.orders || []).filter(order => ['new'].includes(order.status));
+
+  if (!notificationsBaselineReady) {
+    activeAlerts.forEach(alert => seenAlertIds.add(alert.id));
+    activeOrders.forEach(order => seenOrderIds.add(order.id));
+    notificationsBaselineReady = true;
+    return;
+  }
+
+  activeAlerts.forEach(alert => {
+    if (seenAlertIds.has(alert.id)) return;
+    seenAlertIds.add(alert.id);
+    notify(`AUREA · ${alertLabel(alert.type)}`, `${alert.tableName || 'Mesa'} · ${alert.note || 'Nueva alerta'}`, `aurea-alert-${alert.id}`);
+  });
+
+  activeOrders.forEach(order => {
+    if (seenOrderIds.has(order.id)) return;
+    seenOrderIds.add(order.id);
+    const items = (order.items || []).map(item => `${item.qty}x ${item.name}`).join(', ');
+    notify('AUREA · Nueva comanda', `#${order.commandNumber || '-'} · ${order.tableName || 'Mesa'} · ${items}`, `aurea-order-${order.id}`);
+  });
+}
 
 function metric(value, suffix = '') {
   if (value === null || value === undefined || value === '') return '—';

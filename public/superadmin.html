@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AUREA Super Admin · KMO</title>
+  <link rel="stylesheet" href="/style.css?v=0.8.4" />
+</head>
+<body>
+  <div id="toast" class="toast"></div>
+
+  <main class="main super-main">
+    <header class="topbar">
+      <div class="brand">
+        <img class="brand-logo" src="/aurea-logo.svg" alt="AUREA logo" />
+        <div>
+          <div class="brand-title">AUREA</div>
+          <div class="brand-subtitle">Super Admin · by KMO</div>
+        </div>
+      </div>
+      <div class="inline-actions end">
+        <a class="btn secondary" href="/admin.html">Panel admin</a>
+        <button class="btn ghost" onclick="logoutSuper()">Salir</button>
+      </div>
+    </header>
+
+    <section id="accessDenied" class="card" style="display:none;">
+      <h1 style="margin-top:0;">Acceso restringido</h1>
+      <p class="muted">Este portal solo funciona con sesión de super admin. Entra primero con tu usuario super admin desde el login administrativo.</p>
+      <a class="btn" href="/admin.html">Ir al login</a>
+    </section>
+
+    <section id="superApp" style="display:none;">
+      <section class="client-hero">
+        <div class="pill">Portal maestro</div>
+        <h1>Crear cliente nuevo</h1>
+        <p class="muted" style="line-height:1.55; max-width:760px;">
+          Genera credenciales iniciales, PIN operativo, variables para Coolify y mensaje de bienvenida.
+          La recomendación es mantener un deployment separado por restaurante.
+        </p>
+      </section>
+
+      <section class="grid">
+        <div class="col-5 card">
+          <h2 style="margin-top:0;">Alta inicial</h2>
+          <form id="clientForm" class="form-grid">
+            <label>Nombre del restaurante
+              <input class="input" id="clientName" placeholder="Ej. Puerto Montt" required />
+            </label>
+            <label>Slug / identificador
+              <input class="input" id="clientSlug" placeholder="puerto-montt" />
+            </label>
+            <label>Prefijo PIN
+              <input class="input" id="pinPrefix" placeholder="PM" maxlength="8" />
+            </label>
+            <label>Subdominio
+              <input class="input" id="subdomain" placeholder="puertomontt.kmo.lat" />
+            </label>
+            <label>Usuario admin inicial
+              <input class="input" id="adminUser" placeholder="puertomontt" />
+            </label>
+            <button class="btn" type="submit">Generar cliente</button>
+          </form>
+        </div>
+
+        <div class="col-7 card">
+          <div class="section-head">
+            <h2 style="margin:0;">Resultado generado</h2>
+            <span class="pill">copiar / pegar en Coolify</span>
+          </div>
+          <div id="resultBox" class="empty-state">
+            Aún no has generado cliente. Llena el formulario y AUREA creará credenciales seguras.
+          </div>
+        </div>
+
+        <div class="col-12 card">
+          <div class="section-head">
+            <div>
+              <h2 style="margin:0;">Clientes generados</h2>
+              <p class="muted" style="margin:6px 0 0;">Registro local para que no pierdas credenciales iniciales. Guárdalas también en un gestor de contraseñas.</p>
+            </div>
+            <button class="btn ghost small" onclick="loadClients()">Actualizar</button>
+          </div>
+          <div id="clientsList" class="list"></div>
+        </div>
+      </section>
+    </section>
+  </main>
+
+  <script src="/superadmin.js?v=0.8.4"></script>
+</body>
+</html>

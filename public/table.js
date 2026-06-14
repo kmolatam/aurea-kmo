@@ -204,7 +204,7 @@ async function load() {
     document.getElementById('tableName').textContent = state.table.name;
     document.getElementById('restaurantName').textContent = state.restaurant.name;
     document.getElementById('restaurantSubtitle').textContent = state.restaurant.subtitle || '';
-    document.getElementById('leadConsentText').textContent = state.restaurant.crmOptInText || 'Acepto recibir beneficios VIP, promociones y actualizaciones por WhatsApp.';
+    if (document.getElementById('leadConsentText')) document.getElementById('leadConsentText').textContent = state.restaurant.crmOptInText || ''; 
 
     readCustomerFromStorage();
     readDinersFromStorage();
@@ -248,6 +248,7 @@ function renderKnownCustomer() {
 }
 
 function maybeShowWelcome() {
+  if (!state.restaurant?.crmEnabled) return;
   if (state.customer?.phone || localStorage.getItem(`${storageKey()}_skipped`) === 'yes') return;
   document.getElementById('welcomeBackdrop').classList.add('active');
 }

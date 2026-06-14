@@ -6,10 +6,13 @@ const QRCode = require('qrcode');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const DB_PATH = path.join(__dirname, 'data', 'db.json');
+const DB_PATH = path.resolve(process.env.AUREA_DB_PATH || path.join(__dirname, 'data', 'db.json'));
+fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
 
-const ADMIN_USER = process.env.AUREA_USER || 'admin';
-const ADMIN_PASS = process.env.AUREA_PASS || 'aurea123';
+const ADMIN_USER = process.env.AUREA_USER || 'lalomita';
+const ADMIN_PASS = process.env.AUREA_PASS || '1564';
+const SUPER_ADMIN_USER = process.env.AUREA_SUPER_USER || 'superadmin';
+const SUPER_ADMIN_PASS = process.env.AUREA_SUPER_PASS || 'aurea-super-1564';
 
 app.use(express.json({ limit: '8mb' }));
 app.use(express.urlencoded({ extended: true, limit: '8mb' }));
@@ -45,7 +48,9 @@ function ensureDbShape(db) {
   db.restaurant.accentColor = db.restaurant.accentColor || db.restaurant.primaryColor || '#c9a44c';
   db.restaurant.primaryColor = '#c9a44c';
   db.restaurant.operationMode = db.restaurant.operationMode || 'commands';
-  db.restaurant.crmOptInText = db.restaurant.crmOptInText || 'Acepto recibir beneficios VIP, promociones y actualizaciones del restaurante por WhatsApp.';
+  db.restaurant.crmOptInText = db.restaurant.crmOptInText || '';
+  db.restaurant.crmEnabled = Boolean(db.restaurant.crmEnabled);
+  db.restaurant.pinPrefix = restaurantPinPrefix(db);
   db.restaurant.assignmentMode = db.restaurant.assignmentMode || 'free';
   db.restaurant.instanceSlug = cleanSlug(db.restaurant.instanceSlug || db.restaurant.name || 'aurea-demo');
   db.restaurant.whatsappOfficial = db.restaurant.whatsappOfficial || {};
@@ -93,6 +98,16 @@ function ensureDbShape(db) {
   });
   db.tableClosures = Array.isArray(db.tableClosures) ? db.tableClosures : [];
   db.feedback = Array.isArray(db.feedback) ? db.feedback : [];
+  db.adminUsers = Array.isArray(db.adminUsers) ? db.adminUsers : [];
+  db.superClients = Array.isArray(db.superClients) ? db.superClients : [];
+  db.superClients.forEach(client => {
+    client.createdAt = client.createdAt || nowIso();
+    client.status = client.status || 'generated';
+    client.name = cleanString(client.name || '', 120);
+    client.slug = cleanSlug(client.slug || client.name || 'cliente');
+    client.pinPrefix = cleanString(client.pinPrefix || initialsForPrefix(client.name || client.slug), 8).toUpperCase().replace(/[^A-Z0-9]/g, '') || 'AU';
+    client.subdomain = cleanString(client.subdomain || '', 120).toLowerCase();
+  });
   db.staff = Array.isArray(db.staff) ? db.staff : [];
   db.tableSessions = Array.isArray(db.tableSessions) ? db.tableSessions : [];
   db.tableSessions.forEach(session => {
@@ -105,6 +120,7 @@ function ensureDbShape(db) {
   db.staff.forEach(member => {
     member.assignedTableIds = Array.isArray(member.assignedTableIds) ? member.assignedTableIds : [];
     member.stats = member.stats || {};
+    member.pin = normalizeStaffPin(db, member.pin) || member.pin || '';
   });
   db.orders.forEach((order, index) => {
     order.commandNumber = order.commandNumber || index + 1;
@@ -138,6 +154,57 @@ function makeId(prefix) {
   return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
 }
 
+function randomChars(length = 18, alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@$%&*') {
+  let output = '';
+  for (let i = 0; i < length; i += 1) {
+    output += alphabet[Math.floor(Math.random() * alphabet.length)];
+  }
+  return output;
+}
+
+function generateClientPassword(slug) {
+  const safe = String(slug || 'CLIENTE').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 14) || 'CLIENTE';
+  return `KMO-${safe}-${randomChars(6, 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789')}!`;
+}
+
+function generateSessionSecret() {
+  return randomChars(48, 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@$%&*_-');
+}
+
+function cleanSubdomain(value) {
+  return String(value || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9.-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 120);
+}
+
+function clientEnvBlock(client) {
+  return [
+    `AUREA_USER=${client.adminUser}`,
+    `AUREA_PASS=${client.adminPassword}`,
+    `AUREA_SUPER_USER=${SUPER_ADMIN_USER}`,
+    `AUREA_SUPER_PASS=USA_TU_PASSWORD_SUPER_ADMIN_ACTUAL`,
+    `SESSION_SECRET=${client.sessionSecret}`,
+    `AUREA_DB_PATH=${client.dbPath}`
+  ].join('\n');
+}
+
+function clientWelcomeMessage(client) {
+  return [
+    `Hola, ${client.name}. Ya quedó listo su acceso inicial a AUREA.`,
+    ``,
+    `URL: https://${client.subdomain || `${client.slug}.kmo.lat`}`,
+    `Usuario admin: ${client.adminUser}`,
+    `Contraseña admin: ${client.adminPassword}`,
+    `PIN inicial meseros/cocina: ${client.initialPin}`,
+    ``,
+    `En su primer ingreso verán un tour rápido para configurar menú, mesas, QR y meseros.`
+  ].join('\n');
+}
+
 function cleanString(value, max = 160) {
   return String(value || '').trim().slice(0, max);
 }
@@ -168,9 +235,66 @@ function normalizePhone(value) {
   return String(value || '').replace(/\D/g, '').slice(0, 16);
 }
 
+
+function initialsForPrefix(value) {
+  const words = String(value || '')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9\s-]/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean);
+  if (words.length >= 2) return `${words[0][0]}${words[1][0]}`;
+  if (words.length === 1) return words[0].slice(0, 2);
+  return 'AU';
+}
+
+function restaurantPinPrefix(db) {
+  const base = db?.restaurant?.pinPrefix || initialsForPrefix(db?.restaurant?.name || db?.restaurant?.instanceSlug || 'Aurea');
+  return String(base || 'AU').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6) || 'AU';
+}
+
+function pinDigits(value) {
+  return String(value || '').replace(/\D/g, '').slice(-4);
+}
+
+function normalizeStaffPin(db, value, options = {}) {
+  const raw = cleanString(value, 20).toUpperCase().trim();
+  const prefix = restaurantPinPrefix(db);
+  if (/^[A-Z0-9]{1,6}-\d{4}$/.test(raw)) return raw;
+  const digits = pinDigits(raw);
+  if (digits.length === 4) return `${prefix}-${digits}`;
+  if (options.generate) return generateUniqueStaffPin(db);
+  return '';
+}
+
+function staffPinLoginCandidates(db, value) {
+  const raw = cleanString(value, 20).toUpperCase().trim();
+  const normalized = normalizeStaffPin(db, raw);
+  return Array.from(new Set([raw, normalized].filter(Boolean)));
+}
+
+function staffPinInUse(db, pin, exceptId = '') {
+  return (db.staff || []).some(member => member.id !== exceptId && member.pin && member.pin === pin);
+}
+
+function generateUniqueStaffPin(db) {
+  for (let i = 0; i < 200; i += 1) {
+    const digits = String(Math.floor(1000 + Math.random() * 9000));
+    const pin = `${restaurantPinPrefix(db)}-${digits}`;
+    if (!staffPinInUse(db, pin)) return pin;
+  }
+  return `${restaurantPinPrefix(db)}-${Date.now().toString().slice(-4)}`;
+}
+
 function requireLogin(req, res, next) {
   if (req.session && req.session.isAdmin) return next();
   return res.status(401).json({ ok: false, message: 'No autorizado' });
+}
+
+function requireSuperAdmin(req, res, next) {
+  if (req.session && req.session.isAdmin && req.session.adminRole === 'superadmin') return next();
+  return res.status(403).json({ ok: false, message: 'Solo super admin' });
 }
 
 function requireStaff(req, res, next) {
@@ -717,7 +841,7 @@ function computeStaffStats(db) {
 }
 
 app.get('/health', (req, res) => {
-  res.json({ ok: true, product: 'AUREA by KMO', version: '0.8.1' });
+  res.json({ ok: true, product: 'AUREA by KMO', version: '0.8.4-superadmin' });
 });
 
 app.get('/t/:tableId', (req, res) => {
@@ -732,11 +856,25 @@ app.get('/kitchen.html', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'kitchen.html'));
 });
 
+app.get('/superadmin.html', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'superadmin.html'));
+});
+
 app.post('/api/login', (req, res) => {
-  const { username, password } = req.body;
-  if (username === ADMIN_USER && password === ADMIN_PASS) {
+  const username = cleanString(req.body.username, 80);
+  const password = String(req.body.password || '');
+  const db = readDb();
+  const accounts = [
+    { username: ADMIN_USER, password: ADMIN_PASS, role: 'admin', name: db.restaurant?.name || 'Admin' },
+    { username: SUPER_ADMIN_USER, password: SUPER_ADMIN_PASS, role: 'superadmin', name: 'Super Admin' },
+    ...(Array.isArray(db.adminUsers) ? db.adminUsers : [])
+  ].filter(account => account && account.username && account.password);
+  const account = accounts.find(item => item.username === username && item.password === password);
+  if (account) {
     req.session.isAdmin = true;
-    return res.json({ ok: true });
+    req.session.adminRole = account.role || 'admin';
+    req.session.adminUser = account.username;
+    return res.json({ ok: true, role: req.session.adminRole, user: req.session.adminUser });
   }
   return res.status(401).json({ ok: false, message: 'Usuario o contraseña incorrectos' });
 });
@@ -746,13 +884,67 @@ app.post('/api/logout', (req, res) => {
 });
 
 app.get('/api/session', (req, res) => {
-  res.json({ ok: true, isAdmin: Boolean(req.session && req.session.isAdmin) });
+  res.json({ ok: true, isAdmin: Boolean(req.session && req.session.isAdmin), role: req.session?.adminRole || '', user: req.session?.adminUser || '' });
+});
+
+app.get('/api/super/clients', requireSuperAdmin, (req, res) => {
+  const db = readDb();
+  res.json({ ok: true, clients: db.superClients || [] });
+});
+
+app.post('/api/super/clients/generate', requireSuperAdmin, (req, res) => {
+  const db = readDb();
+  const name = cleanString(req.body.name, 120);
+  if (!name) return res.status(400).json({ ok: false, message: 'Nombre del restaurante requerido' });
+
+  const slug = cleanSlug(req.body.slug || name);
+  const pinPrefix = cleanString(req.body.pinPrefix || initialsForPrefix(name), 8).toUpperCase().replace(/[^A-Z0-9]/g, '') || 'AU';
+  const subdomain = cleanSubdomain(req.body.subdomain || `${slug}.kmo.lat`);
+  const adminUser = cleanSlug(req.body.adminUser || slug).replaceAll('-', '') || slug;
+  const adminPassword = generateClientPassword(slug);
+  const initialPinDigits = String(Math.floor(1000 + Math.random() * 9000));
+  const initialPin = `${pinPrefix}-${initialPinDigits}`;
+  const sessionSecret = generateSessionSecret();
+  const dbPath = `/data/aurea/${slug}/db.json`;
+
+  const client = {
+    id: makeId('client'),
+    name,
+    slug,
+    pinPrefix,
+    subdomain,
+    adminUser,
+    adminPassword,
+    initialPin,
+    initialPinDigits,
+    sessionSecret,
+    dbPath,
+    envBlock: '',
+    welcomeMessage: '',
+    status: 'generated',
+    createdAt: nowIso(),
+    createdBy: req.session.adminUser || 'superadmin'
+  };
+  client.envBlock = clientEnvBlock(client);
+  client.welcomeMessage = clientWelcomeMessage(client);
+
+  db.superClients.unshift(client);
+  writeDb(db);
+  res.json({ ok: true, client });
+});
+
+app.delete('/api/super/clients/:id', requireSuperAdmin, (req, res) => {
+  const db = readDb();
+  const before = (db.superClients || []).length;
+  db.superClients = (db.superClients || []).filter(client => client.id !== req.params.id);
+  writeDb(db);
+  res.json({ ok: true, deleted: before - db.superClients.length });
 });
 
 app.post('/api/staff/login', (req, res) => {
   const db = readDb();
-  const pin = cleanString(req.body.pin, 20);
-  const staff = db.staff.find(member => member.active !== false && member.pin && member.pin === pin);
+  const candidates = staffPinLoginCandidates(db, req.body.pin);
+  const staff = db.staff.find(member => member.active !== false && member.pin && candidates.includes(member.pin));
   if (!staff) return res.status(401).json({ ok: false, message: 'PIN incorrecto o mesero inactivo' });
   req.session.staffId = staff.id;
   res.json({ ok: true, staff: { id: staff.id, name: staff.name, role: staff.role } });
@@ -1431,8 +1623,10 @@ app.put('/api/admin/restaurant', requireLogin, (req, res) => {
     accentColor: cleanColor(req.body.accentColor || db.restaurant.accentColor || '#c9a44c'),
     operationMode: operationModes.includes(req.body.operationMode) ? req.body.operationMode : db.restaurant.operationMode,
     assignmentMode: assignmentModes.includes(req.body.assignmentMode) ? req.body.assignmentMode : (db.restaurant.assignmentMode || 'free'),
-    crmOptInText: cleanString(req.body.crmOptInText || 'Recibir promociones y actualizaciones del restaurante por WhatsApp.', 220),
+    crmOptInText: cleanString(req.body.crmOptInText || '', 220),
+    crmEnabled: req.body.crmEnabled === true || req.body.crmEnabled === 'true',
     instanceSlug: cleanSlug(req.body.instanceSlug || db.restaurant.instanceSlug || db.restaurant.name || 'aurea-demo'),
+    pinPrefix: cleanString(req.body.pinPrefix || db.restaurant.pinPrefix || restaurantPinPrefix(db), 6).toUpperCase().replace(/[^A-Z0-9]/g, '') || restaurantPinPrefix(db),
     whatsappOfficial: {
       enabled: req.body.whatsappOfficial?.enabled === true || req.body.whatsappOfficial?.enabled === 'true',
       displayName: cleanString(req.body.whatsappOfficial?.displayName || db.restaurant.name || '', 100),
@@ -1547,12 +1741,14 @@ app.delete('/api/admin/menu-items/:id', requireLogin, (req, res) => {
 
 app.post('/api/admin/staff', requireLogin, (req, res) => {
   const db = readDb();
+  const pin = normalizeStaffPin(db, req.body.pin, { generate: true });
+  if (staffPinInUse(db, pin)) return res.status(409).json({ ok: false, message: `El PIN ${pin} ya está asignado a otro mesero` });
   const staff = {
     id: makeId('staff'),
     name: cleanString(req.body.name, 80),
     role: cleanString(req.body.role || 'Mesero', 60),
     whatsapp: normalizePhone(req.body.whatsapp),
-    pin: cleanString(req.body.pin, 20),
+    pin,
     active: req.body.active !== false,
     assignedTableIds: Array.isArray(req.body.assignedTableIds) ? req.body.assignedTableIds.map(id => cleanString(id, 80)).filter(Boolean) : [],
     createdAt: nowIso()
@@ -1567,12 +1763,17 @@ app.put('/api/admin/staff/:id', requireLogin, (req, res) => {
   const db = readDb();
   const index = db.staff.findIndex(member => member.id === req.params.id);
   if (index === -1) return res.status(404).json({ ok: false, message: 'Mesero no encontrado' });
+  let nextPin = db.staff[index].pin;
+  if (req.body.pin !== undefined) {
+    nextPin = normalizeStaffPin(db, req.body.pin, { generate: !String(req.body.pin || '').trim() });
+    if (staffPinInUse(db, nextPin, db.staff[index].id)) return res.status(409).json({ ok: false, message: `El PIN ${nextPin} ya está asignado a otro mesero` });
+  }
   db.staff[index] = {
     ...db.staff[index],
     name: req.body.name !== undefined ? cleanString(req.body.name, 80) : db.staff[index].name,
     role: req.body.role !== undefined ? cleanString(req.body.role, 60) : db.staff[index].role,
     whatsapp: req.body.whatsapp !== undefined ? normalizePhone(req.body.whatsapp) : db.staff[index].whatsapp,
-    pin: req.body.pin !== undefined ? cleanString(req.body.pin, 20) : db.staff[index].pin,
+    pin: nextPin,
     active: req.body.active !== undefined ? Boolean(req.body.active) : db.staff[index].active,
     assignedTableIds: req.body.assignedTableIds !== undefined && Array.isArray(req.body.assignedTableIds) ? req.body.assignedTableIds.map(id => cleanString(id, 80)).filter(Boolean) : (db.staff[index].assignedTableIds || [])
   };
@@ -1757,6 +1958,6 @@ app.patch('/api/admin/orders/:id', requireLogin, (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`AUREA by KMO v0.8.1 corriendo en http://localhost:${PORT}`);
+  console.log(`AUREA by KMO v0.8.2-lalomita corriendo en http://localhost:${PORT}`);
   console.log(`Admin demo: usuario ${ADMIN_USER} / contraseña ${ADMIN_PASS}`);
 });

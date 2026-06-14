@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>AUREA Admin</title>
-  <link rel="stylesheet" href="/style.css?v=0.8.1" />
+  <title>AUREA Admin · La Lomita</title>
+  <link rel="stylesheet" href="/style.css?v=0.8.3" />
 </head>
 <body>
   <div id="toast" class="toast"></div>
@@ -12,20 +12,20 @@
   <section id="loginScreen" class="login-wrap">
     <div class="card login-card">
       <div class="brand" style="margin-bottom:18px;">
-        <div class="mark">A</div>
+        <img class="brand-logo" src="/aurea-logo.svg" alt="AUREA logo" />
         <div>
           <div class="brand-title">AUREA</div>
           <div class="brand-subtitle">Admin by KMO</div>
         </div>
       </div>
       <h1 style="margin:0 0 8px;">Entrar al panel</h1>
-      <p style="color:var(--muted); margin-top:0;">Demo: usuario <strong>admin</strong> / contraseña <strong>aurea123</strong></p>
+      <p style="color:var(--muted); margin-top:0;">Acceso administrativo. Usa el login del restaurante o super admin.</p>
       <form id="loginForm" class="form-grid">
         <label>Usuario
-          <input class="input" id="username" autocomplete="username" value="admin" />
+          <input class="input" id="username" autocomplete="username" placeholder="Usuario" />
         </label>
         <label>Contraseña
-          <input class="input" id="password" type="password" autocomplete="current-password" value="aurea123" />
+          <input class="input" id="password" type="password" autocomplete="current-password" placeholder="Contraseña" />
         </label>
         <button class="btn" type="submit">Entrar</button>
       </form>
@@ -35,7 +35,7 @@
   <section id="adminApp" class="admin-layout" style="display:none;">
     <aside class="sidebar">
       <div class="brand">
-        <div class="mark">A</div>
+        <img class="brand-logo" src="/aurea-logo.svg" alt="AUREA logo" />
         <div>
           <div class="brand-title">AUREA</div>
           <div class="brand-subtitle">by KMO</div>
@@ -48,12 +48,11 @@
         <button class="nav-btn" data-section="history">Historial</button>
         <button class="nav-btn" data-section="menu">Menú</button>
         <button class="nav-btn" data-section="tables">Mesas & QR</button>
-        <button class="nav-btn" data-section="crm">CRM WhatsApp</button>
-        <button class="nav-btn" data-section="whatsappOrders">WhatsApp Pedidos</button>
         <button class="nav-btn" data-section="settings">Configuración</button>
       </nav>
       <a class="btn ghost" style="margin-top:18px; width:100%; text-align:center; display:block;" href="/staff.html" target="_blank">Panel meseros</a>
       <a class="btn ghost" style="margin-top:10px; width:100%; text-align:center; display:block;" href="/kitchen.html" target="_blank">Pantalla cocina</a>
+      <a id="superAdminLink" class="btn ghost" style="margin-top:10px; width:100%; text-align:center; display:none;" href="/superadmin.html" target="_blank">Portal super admin</a>
       <button class="btn ghost" style="margin-top:10px; width:100%;" onclick="logout()">Salir</button>
     </aside>
 
@@ -64,7 +63,7 @@
           <div class="col-3 stat"><strong id="statAlerts">0</strong><span>Alertas nuevas</span></div>
           <div class="col-3 stat"><strong id="statOrders">0</strong><span>Comandas pendientes</span></div>
           <div class="col-3 stat"><strong id="statTables">0</strong><span>Mesas activas</span></div>
-          <div class="col-3 stat"><strong id="statContacts">0</strong><span>WhatsApps captados</span></div>
+          <div class="col-3 stat"><strong id="statContacts">0</strong><span>Clientes captados</span></div>
           <div class="col-6 card">
             <h3 style="margin-top:0;">Alertas recientes</h3>
             <div id="alertsList" class="list"></div>
@@ -215,7 +214,7 @@
         </div>
       </section>
 
-      <section id="crm" class="section">
+      <section id="crm" class="section feature-paused" style="display:none;">
         <h2>CRM WhatsApp</h2>
         <div class="grid">
           <div class="col-4 card">
@@ -244,7 +243,7 @@
         </div>
       </section>
 
-      <section id="whatsappOrders" class="section">
+      <section id="whatsappOrders" class="section feature-paused" style="display:none;">
         <div class="section-head">
           <div>
             <h2 style="margin-bottom:4px;">WhatsApp Pedidos</h2>
@@ -340,7 +339,7 @@
               <label>Color de detalles
                 <input class="input" id="restaurantAccentColor" type="color" value="#c9a44c" />
               </label>
-              <label>WhatsApp principal del restaurante
+              <label class="feature-paused" style="display:none;">WhatsApp principal del restaurante
                 <input class="input" id="restaurantWhatsapp" placeholder="Ej. 6181234567" />
               </label>
               <label>Identificador interno del restaurante
@@ -352,8 +351,8 @@
               <label>Horario
                 <input class="input" id="restaurantHours" />
               </label>
-              <label>Texto de consentimiento CRM
-                <textarea id="restaurantCrmText" placeholder="Recibir promociones y actualizaciones del restaurante por WhatsApp."></textarea>
+              <label class="feature-paused" style="display:none;">Texto de consentimiento CRM
+                <textarea id="restaurantCrmText" placeholder=""></textarea>
               </label>
               <label>Modo de operación
                 <select id="operationMode">
@@ -369,7 +368,10 @@
                   <option value="zone">Asignación por zona</option>
                 </select>
               </label>
-              <div class="split-box">
+              <label>Prefijo de PIN para meseros
+                <input class="input" id="restaurantPinPrefix" maxlength="6" placeholder="Ej. LL" />
+              </label>
+              <div class="split-box feature-paused" style="display:none;">
                 <h3 style="margin:0;">WhatsApp Business oficial</h3>
                 <p class="muted mini-copy">Campos de preparación para Cloud API. No pegues tokens aquí; los tokens reales deben vivir en variables seguras del servidor.</p>
                 <label class="check-row">
@@ -413,8 +415,10 @@
                 <input class="input" id="staffWhatsapp" placeholder="Ej. 6181234567" />
               </label>
               <label>PIN operativo
-                <input class="input" id="staffPin" inputmode="numeric" placeholder="Ej. 4321" />
+                <input class="input" id="staffPin" inputmode="numeric" placeholder="Ej. 1564" />
+                <small class="muted" id="staffPinPreview">Se guardará con prefijo del restaurante.</small>
               </label>
+              <button class="btn secondary small" type="button" onclick="generateStaffPin()">Generar PIN</button>
               <div>
                 <label style="display:block; margin-bottom:8px;">Mesas asignadas para modo por zona</label>
                 <div id="staffZoneTables" class="check-grid"></div>
@@ -438,6 +442,6 @@
     </main>
   </section>
 
-  <script src="/admin.js?v=0.8.1"></script>
+  <script src="/admin.js?v=0.8.3"></script>
 </body>
 </html>

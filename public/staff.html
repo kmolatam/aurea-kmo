@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>AUREA Staff</title>
-  <link rel="stylesheet" href="/style.css?v=0.8.1" />
+  <link rel="stylesheet" href="/style.css?v=0.8.3" />
 </head>
 <body>
   <div id="toast" class="toast"></div>
@@ -12,7 +12,7 @@
   <section id="staffLogin" class="login-wrap">
     <div class="card login-card">
       <div class="brand" style="margin-bottom:18px;">
-        <div class="mark">A</div>
+        <img class="brand-logo" src="/aurea-logo.svg" alt="AUREA logo" />
         <div>
           <div class="brand-title">AUREA</div>
           <div class="brand-subtitle">Panel de meseros</div>
@@ -22,7 +22,7 @@
       <p class="muted">Usa el PIN que el administrador configuró para el mesero.</p>
       <form id="staffLoginForm" class="form-grid">
         <label>PIN operativo
-          <input class="input" id="staffPinLogin" inputmode="numeric" placeholder="Ej. 1234" />
+          <input class="input" id="staffPinLogin" inputmode="numeric" placeholder="Ej. LL-1564 o 1564" />
         </label>
         <button class="btn" type="submit">Entrar</button>
       </form>
@@ -40,6 +40,16 @@
       </div>
     </section>
 
+
+    <section id="notificationPrompt" class="card notification-card" style="display:none; margin-bottom:14px;">
+      <div class="section-head">
+        <div>
+          <h2 style="margin:0;">Activa notificaciones</h2>
+          <p class="muted" style="margin:6px 0 0; line-height:1.5;">Permite notificaciones de AUREA para recibir avisos de nuevas comandas y alertas aunque estés viendo otra pestaña. Recomendado activarlas en el primer ingreso.</p>
+        </div>
+        <button class="btn small" id="enableNotificationsBtn" type="button" onclick="enableStaffNotifications()">Activar</button>
+      </div>
+    </section>
 
     <section class="card" style="margin-bottom:14px;">
       <div class="section-head">
@@ -99,6 +109,6 @@
     </div>
   </div>
 
-  <script src="/staff.js?v=0.8.1"></script>
+  <script src="/staff.js?v=0.8.3"></script>
 </body>
 </html>

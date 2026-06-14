@@ -58,3 +58,16 @@ Esta versión NO usa automatización no oficial de WhatsApp Web. El módulo es m
 - v0.8.2 / v1.0: multi-restaurante real con login por restaurante y aislamiento total de datos.
 - v1.1: WhatsApp Cloud API oficial con webhooks.
 - v1.2: plantillas aprobadas, opt-in/opt-out y automatizaciones controladas.
+
+
+## Seguridad multi-restaurante
+
+AUREA en esta versión funciona como **single-tenant** por instancia: un restaurante por despliegue.
+
+### Recomendación para venderlo a otros clientes
+- Crea **una instancia / app separada por restaurante** en Coolify.
+- Asigna **un subdominio distinto** a cada cliente (ej. `lomita.tudominio.com`, `otrocliente.tudominio.com`).
+- Cambia en cada instancia las variables: `AUREA_USER`, `AUREA_PASS`, `AUREA_SUPER_USER`, `AUREA_SUPER_PASS`, `SESSION_SECRET`.
+- Si quieres persistencia aislada, puedes definir `AUREA_DB_PATH` a una ruta distinta por cliente o montar un volumen separado.
+
+Así evitas que personal de un restaurante entre al panel de otro.

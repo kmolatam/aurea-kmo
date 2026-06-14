@@ -873,7 +873,7 @@ select option { color: #111; }
   color: var(--muted);
 }
 
-/* AUREA v0.8.1 - WhatsApp Pedidos */
+/* AUREA v0.8.2 - módulos WhatsApp pausados */
 .qr-preview-box {
   border: 1px dashed var(--line);
   border-radius: 18px;
@@ -886,4 +886,167 @@ select option { color: #111; }
 }
 .qr-preview-box:empty::before {
   content: 'Genera un QR para pedido por WhatsApp';
+}
+
+
+/* AUREA v0.8.2 - tour y notificaciones */
+.tour-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: none;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 22px;
+  background: linear-gradient(180deg, rgba(0,0,0,.08), rgba(0,0,0,.58));
+}
+.tour-overlay.active { display: flex; }
+.tour-card {
+  width: min(620px, 100%);
+  background: var(--panel);
+  border: 1px solid rgba(201,164,76,.45);
+  border-radius: 22px;
+  padding: 20px;
+  box-shadow: 0 20px 80px rgba(0,0,0,.45);
+}
+.tour-card h2 { margin: 10px 0 8px; }
+.tour-card p { color: var(--muted); line-height: 1.6; margin: 0 0 16px; }
+.notification-card {
+  border-color: rgba(201,164,76,.5);
+  background: linear-gradient(135deg, rgba(201,164,76,.12), rgba(255,255,255,.03));
+}
+.feature-paused { display: none !important; }
+
+
+.brand-logo {
+  width: 44px;
+  height: 44px;
+  object-fit: contain;
+  display: block;
+  filter: drop-shadow(0 8px 18px rgba(201,164,76,.18));
+}
+
+.hero-portals {
+  min-height: calc(100vh - 90px);
+}
+
+.portal-panel {
+  padding: 20px;
+}
+
+.portal-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.portal-card {
+  min-height: 170px;
+  padding: 18px;
+  border-radius: 22px;
+  border: 1px solid var(--line);
+  background: rgba(255,255,255,.045);
+  display: grid;
+  gap: 10px;
+  align-content: start;
+  transition: transform .16s ease, border-color .16s ease, background .16s ease;
+}
+
+.portal-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(201,164,76,.38);
+  background: rgba(255,255,255,.065);
+}
+
+.portal-card strong {
+  font-size: 18px;
+}
+
+.portal-card span:last-child {
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.portal-icon {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  color: var(--gold-2);
+  background: linear-gradient(145deg, rgba(201,164,76,.18), rgba(255,255,255,.05));
+  border: 1px solid rgba(241,211,132,.18);
+  font-size: 20px;
+}
+
+.portal-card-kmo {
+  background: linear-gradient(135deg, rgba(201,164,76,.14), rgba(255,255,255,.04));
+}
+
+.actions-small {
+  margin-top: 12px;
+}
+
+@media (max-width: 860px) {
+  .portal-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.super-main {
+  width: min(1240px, calc(100% - 32px));
+  margin: 0 auto;
+}
+
+.empty-state {
+  min-height: 220px;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  color: var(--muted);
+  border: 1px dashed var(--line);
+  border-radius: 22px;
+  padding: 22px;
+  background: rgba(255,255,255,.03);
+}
+
+.generated-client {
+  display: grid;
+  gap: 14px;
+}
+
+.secret-line {
+  display: grid;
+  grid-template-columns: 150px 1fr;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+.secret-line span {
+  color: var(--muted);
+  font-size: 13px;
+}
+.secret-line strong {
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.code-block {
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  padding: 14px;
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  background: rgba(0,0,0,.28);
+  color: var(--gold-2);
+  font-size: 13px;
+}
+
+.checklist {
+  color: var(--muted);
+  line-height: 1.7;
+}
+.checklist strong {
+  color: var(--text);
 }

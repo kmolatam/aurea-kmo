@@ -59,6 +59,8 @@ async function api(url, options = {}) {
 
 async function checkSession() {
   const session = await api('/api/session');
+  const superLink = document.getElementById('superAdminLink');
+  if (superLink) superLink.style.display = session.role === 'superadmin' ? 'block' : 'none';
   if (session.isAdmin) showAdmin();
 }
 
@@ -73,8 +75,10 @@ async function loadData(fullRender = false) {
   try {
     db = await api('/api/admin/data');
     applyAccent();
-    if (fullRender) renderAll();
-    else renderLiveData();
+    if (fullRender) {
+      renderAll();
+      maybeShowAdminTour();
+    } else renderLiveData();
   } catch (error) {
     if (error.message.includes('No autorizado')) return;
     toast(error.message);
@@ -96,8 +100,6 @@ function renderAll() {
   renderCategories();
   renderMenu();
   renderTables();
-  renderCRM();
-  renderWhatsappOrders();
   renderSettings();
   renderStaff();
 }
@@ -109,8 +111,6 @@ function renderLiveData() {
   renderCommandBoard();
   renderTeam();
   renderHistory();
-  renderCRM();
-  renderWhatsappOrders();
 }
 
 function renderStats() {
@@ -181,7 +181,6 @@ function orderCard(order, compact = false) {
         ${order.status === 'new' ? `<div style="margin-top:10px;"><span class="pill">Elegir tiempo al confirmar</span></div>${estimatePicker(order.id)}` : ''}
       </div>
       <div class="inline-actions end">
-        ${staff ? `<a class="btn small secondary" href="${whatsappUrl(staff.whatsapp, msg)}" target="_blank">WhatsApp mesero</a>` : ''}
         ${order.status !== 'new' ? `<button class="btn small secondary" onclick="updateOrder('${order.id}', 'confirmed')">Confirmar</button>` : ''}
         <button class="btn small secondary" onclick="updateOrder('${order.id}', 'in_progress')">Preparar</button>
         <button class="btn small secondary" onclick="updateOrder('${order.id}', 'ready')">Listo</button>
@@ -224,7 +223,6 @@ function renderAlerts() {
           <div style="margin-top:8px;"><span class="pill">${escapeHtml(statusLabel(alert.status))}</span></div>
         </div>
         <div class="inline-actions end">
-          ${staff ? `<a class="btn small secondary" href="${whatsappUrl(staff.whatsapp, msg)}" target="_blank">WhatsApp mesero</a>` : ''}
           <button class="btn small secondary" onclick="updateAlert('${alert.id}', 'in_progress')">En proceso</button>
           <button class="btn small success" onclick="updateAlert('${alert.id}', 'done')">Listo</button>
         </div>
@@ -418,7 +416,7 @@ function renderStaffStats() {
           <span><strong>${stat.activeTables}</strong> mesas activas</span>
           <span><strong>${stat.activeOrders}</strong> comandas activas</span>
           <span><strong>${stat.deliveredOrders}</strong> entregadas</span>
-          <span><strong>${stat.vipCaptured}</strong> VIP captados</span>
+          <span><strong>${stat.vipCaptured}</strong> Clientes captados</span>
           <span><strong>${money(stat.totalSales)}</strong> venta registrada</span>
           <span>Tomar mesa: <strong>${metric(stat.avgTakeMinutes, ' min')}</strong></span>
           <span>Confirmar: <strong>${metric(stat.avgConfirmMinutes, ' min')}</strong></span>
@@ -517,8 +515,6 @@ function filteredContacts() {
 
 function setCrmFilter(filter) {
   crmFilter = filter;
-  renderCRM();
-  renderWhatsappOrders();
 }
 
 function renderCRM() {
@@ -657,6 +653,8 @@ function renderSettings() {
   document.getElementById('restaurantWhatsapp').value = db.restaurant.whatsapp || '';
   const slugInput = document.getElementById('restaurantInstanceSlug');
   if (slugInput) slugInput.value = db.restaurant.instanceSlug || '';
+  const pinPrefixInput = document.getElementById('restaurantPinPrefix');
+  if (pinPrefixInput) pinPrefixInput.value = db.restaurant.pinPrefix || 'LL';
   document.getElementById('restaurantAddress').value = db.restaurant.address || '';
   document.getElementById('restaurantHours').value = db.restaurant.hours || '';
   document.getElementById('restaurantCrmText').value = db.restaurant.crmOptInText || 'Recibir promociones y actualizaciones del restaurante por WhatsApp.';
@@ -677,6 +675,7 @@ function renderSettings() {
   if (db.restaurant.logoDataUrl) preview.innerHTML = `<img src="${db.restaurant.logoDataUrl}" alt="Logo" />`;
   else preview.textContent = 'Sin logo cargado';
   renderStaffZoneOptions();
+  updateStaffPinPreview();
 }
 
 function renderStaff() {
@@ -695,7 +694,6 @@ function renderStaff() {
         <div style="margin-top:8px;"><span class="pill">${member.active !== false ? 'Activo' : 'Inactivo'}</span></div>
       </div>
       <div class="inline-actions end">
-        ${member.whatsapp ? `<a class="btn secondary small" href="${whatsappUrl(member.whatsapp, 'Tienes una alerta nueva en AUREA. Abre el panel de meseros.') }" target="_blank">Probar WhatsApp</a>` : ''}
         <button class="btn small secondary" onclick="saveStaffZones('${member.id}')">Editar zona</button>
         <button class="btn danger small" onclick="deleteStaff('${member.id}')">Eliminar</button>
       </div>
@@ -826,6 +824,93 @@ function readLogoFile(file) {
   });
 }
 
+
+function activeNavButton(section) {
+  return document.querySelector(`.nav-btn[data-section="${section}"]`);
+}
+
+function switchAdminSection(section) {
+  const target = document.getElementById(section);
+  const button = activeNavButton(section);
+  if (!target || !button) return;
+  currentSection = section;
+  document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.remove('active'));
+  document.querySelectorAll('.section').forEach(sectionEl => sectionEl.classList.remove('active'));
+  button.classList.add('active');
+  target.classList.add('active');
+  if (section === 'tables') renderTables();
+}
+
+const adminTourSteps = [
+  { section: 'dashboard', title: 'Centro de mando', body: 'Aquí verás alertas, comandas pendientes, mesas activas y el pulso del restaurante en tiempo real.' },
+  { section: 'menu', title: 'Menú editable', body: 'Aquí creas categorías, agregas productos, cambias precios y activas u ocultas platillos cuando se agoten.' },
+  { section: 'tables', title: 'Mesas y QR', body: 'Aquí creas las mesas y descargas el QR único que va en cada mesa para que los clientes pidan o llamen al mesero.' },
+  { section: 'settings', title: 'Meseros y PIN', body: 'Aquí agregas meseros. El PIN se guarda con prefijo del restaurante, por ejemplo LL-1564, para evitar duplicados entre perfiles.' },
+  { section: 'team', title: 'Equipo en tiempo real', body: 'Aquí revisas qué mesero tomó cada mesa, quién confirma comandas y cómo va su rendimiento.' }
+];
+let adminTourIndex = 0;
+
+function adminTourKey() {
+  return `aurea_admin_tour_seen_${db?.restaurant?.instanceSlug || 'default'}`;
+}
+
+function maybeShowAdminTour() {
+  if (!db || localStorage.getItem(adminTourKey()) === 'yes') return;
+  setTimeout(() => showAdminTour(0), 400);
+}
+
+function showAdminTour(index = 0) {
+  adminTourIndex = Math.max(0, Math.min(index, adminTourSteps.length - 1));
+  const step = adminTourSteps[adminTourIndex];
+  switchAdminSection(step.section);
+  let overlay = document.getElementById('adminTourOverlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'adminTourOverlay';
+    overlay.className = 'tour-overlay';
+    document.body.appendChild(overlay);
+  }
+  overlay.innerHTML = `
+    <div class="tour-card">
+      <div class="pill">Tour inicial ${adminTourIndex + 1}/${adminTourSteps.length}</div>
+      <h2>${escapeHtml(step.title)}</h2>
+      <p>${escapeHtml(step.body)}</p>
+      <div class="inline-actions end">
+        <button class="btn ghost small" onclick="finishAdminTour()">Saltar</button>
+        ${adminTourIndex > 0 ? '<button class="btn secondary small" onclick="showAdminTour(adminTourIndex - 1)">Atrás</button>' : ''}
+        <button class="btn small" onclick="${adminTourIndex === adminTourSteps.length - 1 ? 'finishAdminTour()' : 'showAdminTour(adminTourIndex + 1)'}">${adminTourIndex === adminTourSteps.length - 1 ? 'Terminar' : 'Siguiente'}</button>
+      </div>
+    </div>
+  `;
+  overlay.classList.add('active');
+}
+
+function finishAdminTour() {
+  localStorage.setItem(adminTourKey(), 'yes');
+  document.getElementById('adminTourOverlay')?.remove();
+}
+
+function adminPinPrefix() {
+  return String(db?.restaurant?.pinPrefix || 'LL').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6) || 'LL';
+}
+
+function updateStaffPinPreview() {
+  const input = document.getElementById('staffPin');
+  const preview = document.getElementById('staffPinPreview');
+  if (!input || !preview) return;
+  const digits = String(input.value || '').replace(/\D/g, '').slice(-4);
+  preview.textContent = digits.length === 4 ? `Se guardará como ${adminPinPrefix()}-${digits}` : `Se guardará como ${adminPinPrefix()}-####`;
+}
+
+function generateStaffPin() {
+  const input = document.getElementById('staffPin');
+  if (!input) return;
+  input.value = String(Math.floor(1000 + Math.random() * 9000));
+  updateStaffPinPreview();
+}
+
+document.getElementById('staffPin')?.addEventListener('input', updateStaffPinPreview);
+
 document.getElementById('loginForm').addEventListener('submit', async event => {
   event.preventDefault();
   try {
@@ -843,15 +928,7 @@ document.getElementById('loginForm').addEventListener('submit', async event => {
 });
 
 document.querySelectorAll('.nav-btn').forEach(button => {
-  button.addEventListener('click', () => {
-    currentSection = button.dataset.section;
-    document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.remove('active'));
-    document.querySelectorAll('.section').forEach(section => section.classList.remove('active'));
-    button.classList.add('active');
-    document.getElementById(currentSection).classList.add('active');
-    if (currentSection === 'tables') renderTables();
-    if (currentSection === 'whatsappOrders') renderWhatsappOrders();
-  });
+  button.addEventListener('click', () => switchAdminSection(button.dataset.section));
 });
 
 document.getElementById('menuForm').addEventListener('submit', async event => {
@@ -932,6 +1009,7 @@ document.getElementById('settingsForm').addEventListener('submit', async event =
       logoText: document.getElementById('restaurantLogoText').value,
       whatsapp: document.getElementById('restaurantWhatsapp').value,
       instanceSlug: document.getElementById('restaurantInstanceSlug')?.value || '',
+      pinPrefix: document.getElementById('restaurantPinPrefix')?.value || '',
       address: document.getElementById('restaurantAddress').value,
       hours: document.getElementById('restaurantHours').value,
       crmOptInText: document.getElementById('restaurantCrmText').value,
@@ -975,6 +1053,7 @@ document.getElementById('staffForm').addEventListener('submit', async event => {
     });
     event.target.reset();
     document.getElementById('staffRole').value = 'Mesero';
+    updateStaffPinPreview();
     toast('Staff agregado');
     await loadData(true);
   } catch (error) {
@@ -1006,7 +1085,7 @@ document.getElementById('whatsappOrderForm')?.addEventListener('submit', async e
   }
 });
 
-document.getElementById('promoMessage').addEventListener('input', () => {
+document.getElementById('promoMessage')?.addEventListener('input', () => {
   if (db) renderCRM();
 });
 
