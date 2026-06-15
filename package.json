@@ -1,7 +1,7 @@
 {
   "name": "aurea-by-kmo-mvp",
-  "version": "0.8.6-superadmin-hidden",
-  "description": "AUREA by KMO - hotfix: portal superadmin oculto de la barra del cliente",
+  "version": "0.8.7-daily-close",
+  "description": "AUREA by KMO - módulo de corte diario, pagos autorizados y egresos",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"

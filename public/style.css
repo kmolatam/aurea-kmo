@@ -1059,3 +1059,33 @@ select option { color: #111; }
   border-radius: 18px;
   background: rgba(255,255,255,.035);
 }
+
+.small-input {
+  max-width: 180px;
+}
+.finance-summary-box {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
+  margin: 10px 0 14px;
+}
+.finance-summary-box div {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 12px;
+  background: rgba(255,255,255,.035);
+}
+.finance-summary-box span {
+  display:block;
+  color: var(--muted);
+  font-size: 12px;
+  margin-bottom: 5px;
+}
+.finance-summary-box strong {
+  font-size: 16px;
+}
+@media (max-width: 900px) {
+  .finance-summary-box {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

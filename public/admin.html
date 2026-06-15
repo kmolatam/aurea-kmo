@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>AUREA Admin · La Lomita</title>
-  <link rel="stylesheet" href="/style.css?v=0.8.6" />
+  <link rel="stylesheet" href="/style.css?v=0.8.7" />
 </head>
 <body>
   <div id="toast" class="toast"></div>
@@ -46,6 +46,7 @@
         <button class="nav-btn" data-section="commands">Comandas</button>
         <button class="nav-btn" data-section="team">Equipo</button>
         <button class="nav-btn" data-section="history">Historial</button>
+        <button class="nav-btn" data-section="finance">Corte diario</button>
         <button class="nav-btn" data-section="menu">Menú</button>
         <button class="nav-btn" data-section="tables">Mesas & QR</button>
         <button class="nav-btn" data-section="settings">Configuración</button>
@@ -137,6 +138,101 @@
         </div>
         <div id="historyList" class="list"></div>
       </section>
+
+      
+      <section id="finance" class="section">
+        <div class="section-head">
+          <div>
+            <h2 style="margin-bottom:4px;">Corte diario</h2>
+            <p class="muted" style="margin-top:0;">Pagos autorizados, egresos, caja y cierre del día.</p>
+          </div>
+          <div class="inline-actions end">
+            <input id="financeDate" class="input small-input" type="date" />
+            <button class="btn secondary small" onclick="renderFinance()">Actualizar</button>
+            <button class="btn small" onclick="copyDailyCloseSummary()">Copiar resumen</button>
+          </div>
+        </div>
+
+        <div class="grid">
+          <div class="col-3 stat"><strong id="financeTotalSales">$0</strong><span>Venta autorizada</span></div>
+          <div class="col-3 stat"><strong id="financeCash">$0</strong><span>Efectivo</span></div>
+          <div class="col-3 stat"><strong id="financeCard">$0</strong><span>Tarjeta</span></div>
+          <div class="col-3 stat"><strong id="financeTransfer">$0</strong><span>Transferencia</span></div>
+
+          <div class="col-6 card">
+            <div class="section-head">
+              <div>
+                <h3 style="margin:0;">Pagos pendientes de autorización</h3>
+                <p class="muted" style="margin:6px 0 0;">El mesero captura, el admin autoriza y cierra la mesa.</p>
+              </div>
+              <span id="pendingPaymentsPill" class="pill">0 pendientes</span>
+            </div>
+            <div id="pendingPaymentsList" class="list" style="margin-top:12px;"></div>
+          </div>
+
+          <div class="col-6 card">
+            <div class="section-head">
+              <div>
+                <h3 style="margin:0;">Egresos del día</h3>
+                <p class="muted" style="margin:6px 0 0;">Compras, proveedores, caja chica y salidas de efectivo.</p>
+              </div>
+              <span id="expenseTotalPill" class="pill">$0</span>
+            </div>
+            <form id="expenseForm" class="form-grid" style="margin-top:12px;">
+              <label>Concepto
+                <input id="expenseConcept" class="input" placeholder="Ej. hielo, camarón, gas..." required />
+              </label>
+              <div class="grid">
+                <label class="col-6">Monto
+                  <input id="expenseAmount" class="input" type="number" min="0" step="0.01" placeholder="0" required />
+                </label>
+                <label class="col-6">Método
+                  <select id="expenseMethod">
+                    <option value="cash">Efectivo</option>
+                    <option value="card">Tarjeta</option>
+                    <option value="transfer">Transferencia</option>
+                    <option value="other">Otro</option>
+                  </select>
+                </label>
+              </div>
+              <label>Proveedor opcional
+                <input id="expenseProvider" class="input" placeholder="Proveedor / negocio" />
+              </label>
+              <label>Nota
+                <input id="expenseNote" class="input" placeholder="Folio, detalle, quién autorizó..." />
+              </label>
+              <button class="btn secondary" type="submit">Registrar egreso</button>
+            </form>
+            <div id="expensesList" class="list" style="margin-top:12px;"></div>
+          </div>
+
+          <div class="col-12 card">
+            <div class="section-head">
+              <div>
+                <h3 style="margin:0;">Cerrar día</h3>
+                <p class="muted" style="margin:6px 0 0;">Captura fondo inicial y efectivo contado. AUREA calcula diferencia.</p>
+              </div>
+              <span id="dailyCloseStatus" class="pill">sin cierre</span>
+            </div>
+            <form id="dailyCloseForm" class="form-grid" style="margin-top:12px;">
+              <div class="grid">
+                <label class="col-4">Fondo inicial
+                  <input id="openingCash" class="input" type="number" min="0" step="0.01" placeholder="0" />
+                </label>
+                <label class="col-4">Efectivo contado
+                  <input id="countedCash" class="input" type="number" min="0" step="0.01" placeholder="0" />
+                </label>
+                <label class="col-4">Notas del cierre
+                  <input id="dailyCloseNotes" class="input" placeholder="Faltante, sobrante, comentario..." />
+                </label>
+              </div>
+              <div id="dailyClosePreview" class="finance-summary-box"></div>
+              <button class="btn success" type="submit">Cerrar día</button>
+            </form>
+          </div>
+        </div>
+      </section>
+
 
       <section id="menu" class="section">
         <h2>Menú editable</h2>
@@ -483,6 +579,6 @@
   </div>
 
 
-  <script src="/admin.js?v=0.8.6"></script>
+  <script src="/admin.js?v=0.8.7"></script>
 </body>
 </html>

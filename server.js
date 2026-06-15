@@ -89,6 +89,9 @@ function ensureDbShape(db) {
   db.orders = Array.isArray(db.orders) ? db.orders : [];
   db.contacts = Array.isArray(db.contacts) ? db.contacts : [];
   db.billRequests = Array.isArray(db.billRequests) ? db.billRequests : [];
+  db.payments = Array.isArray(db.payments) ? db.payments : [];
+  db.expenses = Array.isArray(db.expenses) ? db.expenses : [];
+  db.dailyClosures = Array.isArray(db.dailyClosures) ? db.dailyClosures : [];
   db.whatsappOrders = Array.isArray(db.whatsappOrders) ? db.whatsappOrders : [];
   db.whatsappOrders.forEach((order, index) => {
     order.ticketNumber = order.ticketNumber || index + 1;
@@ -114,8 +117,36 @@ function ensureDbShape(db) {
     session.diners = Array.isArray(session.diners) ? session.diners.map(cleanDinerName).filter(Boolean) : [];
     session.billPaidAt = session.billPaidAt || '';
     session.paymentStatus = session.paymentStatus || '';
+    session.paymentId = session.paymentId || '';
     session.closedByStaffId = session.closedByStaffId || '';
     session.closedByStaffName = session.closedByStaffName || '';
+  });
+  db.payments.forEach(payment => {
+    payment.status = payment.status || 'pending_admin';
+    payment.method = payment.method || 'pending';
+    payment.subtotal = roundMoney(payment.subtotal || 0);
+    payment.discountAmount = roundMoney(payment.discountAmount || 0);
+    payment.tipAmount = roundMoney(payment.tipAmount || 0);
+    payment.totalDue = roundMoney(payment.totalDue || payment.subtotal - payment.discountAmount + payment.tipAmount);
+    payment.cashAmount = roundMoney(payment.cashAmount || 0);
+    payment.cardAmount = roundMoney(payment.cardAmount || 0);
+    payment.transferAmount = roundMoney(payment.transferAmount || 0);
+    payment.otherAmount = roundMoney(payment.otherAmount || 0);
+    payment.totalPaid = roundMoney(payment.totalPaid || payment.cashAmount + payment.cardAmount + payment.transferAmount + payment.otherAmount || payment.totalDue);
+    payment.createdAt = payment.createdAt || nowIso();
+    payment.updatedAt = payment.updatedAt || payment.createdAt;
+    payment.businessDate = payment.businessDate || businessDate(payment.createdAt);
+  });
+  db.expenses.forEach(expense => {
+    expense.amount = roundMoney(expense.amount || 0);
+    expense.businessDate = expense.businessDate || businessDate(expense.createdAt || nowIso());
+    expense.createdAt = expense.createdAt || nowIso();
+    expense.updatedAt = expense.updatedAt || expense.createdAt;
+  });
+  db.dailyClosures.forEach(close => {
+    close.businessDate = close.businessDate || businessDate(close.createdAt || nowIso());
+    close.createdAt = close.createdAt || nowIso();
+    close.updatedAt = close.updatedAt || close.createdAt;
   });
   db.staff.forEach(member => {
     member.assignedTableIds = Array.isArray(member.assignedTableIds) ? member.assignedTableIds : [];
@@ -429,6 +460,173 @@ function paymentMethodLabel(value) {
   return labels[value] || labels.pending;
 }
 
+function paymentMethodLabelFull(value) {
+  const labels = {
+    cash: 'Efectivo',
+    card: 'Tarjeta',
+    transfer: 'Transferencia',
+    mixed: 'Mixto',
+    split: 'Cuenta dividida',
+    pending: 'Por definir',
+    other: 'Otro'
+  };
+  return labels[value] || labels.pending;
+}
+
+function businessDate(value = nowIso()) {
+  try {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: process.env.AUREA_TIMEZONE || 'America/Mexico_City',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    }).format(new Date(value));
+  } catch (error) {
+    return String(value || nowIso()).slice(0, 10);
+  }
+}
+
+function normalizePaymentInput(db, tableId, payload = {}) {
+  const summary = buildBillSummary(db, tableId) || { subtotal: 0, lines: [], orders: [] };
+  const subtotal = roundMoney(summary.subtotal || 0);
+  const discountAmount = Math.max(0, roundMoney(cleanNumber(payload.discountAmount, 0)));
+  const tipAmount = Math.max(0, roundMoney(cleanNumber(payload.tipAmount, 0)));
+  const totalDue = Math.max(0, roundMoney(subtotal - discountAmount + tipAmount));
+  const method = ['cash', 'card', 'transfer', 'mixed', 'split', 'pending', 'other'].includes(payload.method) ? payload.method : 'pending';
+
+  let cashAmount = Math.max(0, roundMoney(cleanNumber(payload.cashAmount, 0)));
+  let cardAmount = Math.max(0, roundMoney(cleanNumber(payload.cardAmount, 0)));
+  let transferAmount = Math.max(0, roundMoney(cleanNumber(payload.transferAmount, 0)));
+  let otherAmount = Math.max(0, roundMoney(cleanNumber(payload.otherAmount, 0)));
+  let totalPaid = roundMoney(cashAmount + cardAmount + transferAmount + otherAmount);
+
+  const explicitPaid = payload.amountPaid !== undefined && payload.amountPaid !== '' ? Math.max(0, roundMoney(cleanNumber(payload.amountPaid, totalDue))) : null;
+
+  if (method !== 'mixed' && method !== 'split') {
+    const amount = explicitPaid !== null ? explicitPaid : totalDue;
+    cashAmount = method === 'cash' ? amount : 0;
+    cardAmount = method === 'card' ? amount : 0;
+    transferAmount = method === 'transfer' ? amount : 0;
+    otherAmount = method === 'other' ? amount : 0;
+    totalPaid = amount;
+  } else if (!totalPaid && explicitPaid !== null) {
+    totalPaid = explicitPaid;
+  } else if (!totalPaid) {
+    totalPaid = totalDue;
+  }
+
+  return {
+    summary,
+    subtotal,
+    discountAmount,
+    tipAmount,
+    totalDue,
+    method,
+    methodLabel: paymentMethodLabelFull(method),
+    cashAmount,
+    cardAmount,
+    transferAmount,
+    otherAmount,
+    totalPaid,
+    changeAmount: method === 'cash' ? Math.max(0, roundMoney(totalPaid - totalDue)) : 0,
+    note: cleanString(payload.note || payload.notes || '', 300)
+  };
+}
+
+function upsertSessionPayment(db, tableId, session, payload = {}, actor = {}) {
+  db.payments = Array.isArray(db.payments) ? db.payments : [];
+  const normalized = normalizePaymentInput(db, tableId, payload);
+  let payment = payload.paymentId ? db.payments.find(item => item.id === payload.paymentId) : null;
+  if (!payment && session?.paymentId) payment = db.payments.find(item => item.id === session.paymentId);
+  if (!payment && session?.id) payment = db.payments.find(item => item.sessionId === session.id && item.status !== 'cancelled');
+  const now = nowIso();
+  if (!payment) {
+    payment = {
+      id: makeId('payment'),
+      tableId,
+      tableName: session?.tableName || db.tables.find(t => t.id === tableId)?.name || '',
+      sessionId: session?.id || '',
+      createdAt: now,
+      createdByStaffId: actor.staffId || '',
+      createdByStaffName: actor.staffName || '',
+      createdByRole: actor.role || 'admin'
+    };
+    db.payments.unshift(payment);
+  }
+
+  Object.assign(payment, {
+    tableId,
+    tableName: session?.tableName || payment.tableName || '',
+    sessionId: session?.id || payment.sessionId || '',
+    subtotal: normalized.subtotal,
+    discountAmount: normalized.discountAmount,
+    tipAmount: normalized.tipAmount,
+    totalDue: normalized.totalDue,
+    method: normalized.method,
+    methodLabel: normalized.methodLabel,
+    cashAmount: normalized.cashAmount,
+    cardAmount: normalized.cardAmount,
+    transferAmount: normalized.transferAmount,
+    otherAmount: normalized.otherAmount,
+    totalPaid: normalized.totalPaid,
+    changeAmount: normalized.changeAmount,
+    note: normalized.note,
+    status: payload.status || payment.status || 'pending_admin',
+    businessDate: payload.businessDate || payment.businessDate || businessDate(now),
+    updatedAt: now
+  });
+
+  if (payload.status === 'approved') {
+    payment.approvedAt = payment.approvedAt || now;
+    payment.approvedBy = actor.staffName || actor.adminName || 'Admin';
+    payment.approvedByRole = actor.role || 'admin';
+  }
+
+  if (session) {
+    session.paymentId = payment.id;
+    session.paymentStatus = payment.status === 'approved' ? 'paid' : 'pending_approval';
+    if (payment.status === 'approved') session.billPaidAt = session.billPaidAt || payment.approvedAt || now;
+    session.updatedAt = now;
+  }
+
+  return payment;
+}
+
+function computeDailyFinanceSummary(db, date = businessDate()) {
+  const payments = (db.payments || []).filter(payment => payment.status === 'approved' && (payment.businessDate || businessDate(payment.approvedAt || payment.createdAt)) === date);
+  const pendingPayments = (db.payments || []).filter(payment => ['pending_admin', 'pending_approval'].includes(payment.status || '') && (payment.businessDate || businessDate(payment.createdAt)) === date);
+  const expenses = (db.expenses || []).filter(expense => (expense.businessDate || businessDate(expense.createdAt)) === date && expense.status !== 'cancelled');
+  const closures = (db.tableClosures || []).filter(item => businessDate(item.closedAt || item.createdAt) === date);
+  const salesByMethod = payments.reduce((acc, payment) => {
+    acc.cash += Number(payment.cashAmount || 0);
+    acc.card += Number(payment.cardAmount || 0);
+    acc.transfer += Number(payment.transferAmount || 0);
+    acc.other += Number(payment.otherAmount || 0);
+    acc.total += Number(payment.totalDue || payment.totalPaid || 0);
+    acc.tips += Number(payment.tipAmount || 0);
+    acc.discounts += Number(payment.discountAmount || 0);
+    return acc;
+  }, { cash: 0, card: 0, transfer: 0, other: 0, total: 0, tips: 0, discounts: 0 });
+
+  Object.keys(salesByMethod).forEach(key => { salesByMethod[key] = roundMoney(salesByMethod[key]); });
+
+  const expenseTotal = roundMoney(expenses.reduce((sum, item) => sum + Number(item.amount || 0), 0));
+  const ticketAverage = payments.length ? roundMoney(salesByMethod.total / payments.length) : 0;
+  return {
+    date,
+    payments,
+    pendingPayments,
+    expenses,
+    closures,
+    salesByMethod,
+    expenseTotal,
+    netCashExpected: roundMoney(salesByMethod.cash - expenseTotal),
+    ticketAverage,
+    paymentCount: payments.length,
+    tableClosureCount: closures.length
+  };
+}
+
 function cleanDinerName(value) {
   return cleanString(value, 60);
 }
@@ -538,6 +736,20 @@ function closeTableSession(db, tableId, staff = null, options = {}) {
 
   const summary = buildBillSummary(db, tableId) || { lines: [], subtotal: 0, orders: [], splitAccounts: [], diners: [] };
   const closeTime = nowIso();
+  let payment = null;
+  if (options.markPaid !== false) {
+    payment = upsertSessionPayment(db, tableId, session, {
+      ...(options.payment || {}),
+      paymentId: options.paymentId || session.paymentId || options.payment?.paymentId || '',
+      status: 'approved',
+      businessDate: options.businessDate || businessDate(closeTime)
+    }, {
+      staffId: staff?.id || options.closedByStaffId || '',
+      staffName: staff?.name || options.closedByStaffName || 'Admin',
+      role: staff ? 'staff' : 'admin',
+      adminName: options.closedByStaffName || 'Admin'
+    });
+  }
   const activeOrderIds = new Set((summary.orders || []).map(order => order.id));
 
   for (const order of db.orders || []) {
@@ -567,7 +779,8 @@ function closeTableSession(db, tableId, staff = null, options = {}) {
 
   session.status = 'closed';
   session.paymentStatus = options.markPaid === false ? (session.paymentStatus || 'closed') : 'paid';
-  session.billPaidAt = session.billPaidAt || (options.markPaid === false ? '' : closeTime);
+  session.paymentId = payment?.id || session.paymentId || '';
+  session.billPaidAt = session.billPaidAt || (options.markPaid === false ? '' : (payment?.approvedAt || closeTime));
   session.closedAt = closeTime;
   session.closedByStaffId = staff?.id || options.closedByStaffId || '';
   session.closedByStaffName = staff?.name || options.closedByStaffName || 'Admin';
@@ -591,6 +804,13 @@ function closeTableSession(db, tableId, staff = null, options = {}) {
     closedAt: closeTime,
     durationMinutes: minutesBetween(session.createdAt, closeTime),
     subtotal: roundMoney(summary.subtotal || 0),
+    paymentId: payment?.id || session.paymentId || '',
+    paymentMethod: payment?.method || '',
+    paymentMethodLabel: payment?.methodLabel || '',
+    paymentTotalDue: payment?.totalDue || 0,
+    paymentTotalPaid: payment?.totalPaid || 0,
+    tipAmount: payment?.tipAmount || 0,
+    discountAmount: payment?.discountAmount || 0,
     orderCount: (summary.orders || []).length,
     lineCount: (summary.lines || []).length,
     diners: summary.diners || session.diners || [],
@@ -841,7 +1061,7 @@ function computeStaffStats(db) {
 }
 
 app.get('/health', (req, res) => {
-  res.json({ ok: true, product: 'AUREA by KMO', version: '0.8.6-superadmin-hidden' });
+  res.json({ ok: true, product: 'AUREA by KMO', version: '0.8.7-daily-close' });
 });
 
 app.get('/t/:tableId', (req, res) => {
@@ -1875,16 +2095,19 @@ app.post('/api/staff/tables/:tableId/paid', requireStaff, (req, res) => {
   const session = activeSessionForTable(db, req.params.tableId);
   if (!session) return res.status(404).json({ ok: false, message: 'No hay sesión activa en esta mesa' });
   if (session.assignedStaffId && session.assignedStaffId !== req.session.staffId) {
-    return res.status(403).json({ ok: false, message: 'Solo el mesero asignado puede marcar pagada esta mesa' });
+    return res.status(403).json({ ok: false, message: 'Solo el mesero asignado puede capturar pago de esta mesa' });
   }
   const staff = db.staff.find(member => member.id === req.session.staffId);
-  session.billPaidAt = session.billPaidAt || nowIso();
-  session.paymentStatus = 'paid';
-  session.updatedAt = nowIso();
+  const payment = upsertSessionPayment(db, req.params.tableId, session, {
+    ...req.body,
+    status: 'pending_admin',
+    businessDate: businessDate()
+  }, { staffId: staff?.id || '', staffName: staff?.name || 'staff', role: 'staff' });
+
   for (const request of db.billRequests || []) {
     if ((request.sessionId && request.sessionId === session.id) || request.tableId === req.params.tableId) {
       if (['new', 'in_progress'].includes(request.status || 'new')) {
-        request.status = 'paid';
+        request.status = 'pending_admin';
         request.updatedAt = nowIso();
       }
     }
@@ -1895,15 +2118,16 @@ app.post('/api/staff/tables/:tableId/paid', requireStaff, (req, res) => {
     tableName: session.tableName,
     sessionId: session.id,
     type: 'bill',
-    note: `Mesa marcada como pagada por ${staff?.name || 'staff'}`,
-    status: 'done',
+    note: `Pago capturado por ${staff?.name || 'staff'} · ${payment.methodLabel} · ${paymentMethodLabelFull(payment.method)} · Total ${payment.totalDue}`,
+    status: 'new',
     assignedStaffId: session.assignedStaffId || staff?.id || '',
     assignedStaffName: session.assignedStaffName || staff?.name || '',
     createdAt: nowIso(),
-    updatedAt: nowIso()
+    updatedAt: nowIso(),
+    paymentId: payment.id
   });
   writeDb(db);
-  res.json({ ok: true, session });
+  res.json({ ok: true, session, payment, message: 'Pago capturado. Falta autorización de admin.' });
 });
 
 app.post('/api/staff/tables/:tableId/close', requireStaff, (req, res) => {
@@ -1941,6 +2165,134 @@ app.post('/api/admin/tables/:tableId/close', requireLogin, (req, res) => {
   writeDb(db);
   res.json({ ok: true, ...result });
 });
+
+
+app.post('/api/admin/payments/:id/approve', requireLogin, (req, res) => {
+  const db = readDb();
+  const payment = (db.payments || []).find(item => item.id === req.params.id);
+  if (!payment) return res.status(404).json({ ok: false, message: 'Pago no encontrado' });
+  const session = payment.sessionId ? (db.tableSessions || []).find(item => item.id === payment.sessionId) : activeSessionForTable(db, payment.tableId);
+  if (!session) return res.status(404).json({ ok: false, message: 'No hay sesión activa para este pago' });
+
+  upsertSessionPayment(db, payment.tableId, session, {
+    ...payment,
+    ...req.body,
+    paymentId: payment.id,
+    status: 'approved',
+    businessDate: payment.businessDate || businessDate()
+  }, { adminName: req.session.adminUser || 'Admin', role: 'admin' });
+
+  let result = null;
+  if (req.body.closeTable !== false) {
+    result = closeTableSession(db, payment.tableId, null, {
+      markPaid: true,
+      paymentId: payment.id,
+      payment,
+      closedByStaffName: req.session.adminUser || 'Admin',
+      businessDate: payment.businessDate || businessDate()
+    });
+  }
+  writeDb(db);
+  res.json({ ok: true, payment, ...(result || {}) });
+});
+
+app.post('/api/admin/tables/:tableId/payment', requireLogin, (req, res) => {
+  const db = readDb();
+  const session = activeSessionForTable(db, req.params.tableId);
+  if (!session) return res.status(404).json({ ok: false, message: 'No hay sesión activa en esta mesa' });
+  const payment = upsertSessionPayment(db, req.params.tableId, session, {
+    ...req.body,
+    status: req.body.authorize === false ? 'pending_admin' : 'approved',
+    businessDate: req.body.businessDate || businessDate()
+  }, { adminName: req.session.adminUser || 'Admin', role: 'admin' });
+  let result = null;
+  if (req.body.closeTable !== false && payment.status === 'approved') {
+    result = closeTableSession(db, req.params.tableId, null, {
+      markPaid: true,
+      paymentId: payment.id,
+      payment,
+      closedByStaffName: req.session.adminUser || 'Admin',
+      businessDate: payment.businessDate
+    });
+  }
+  writeDb(db);
+  res.json({ ok: true, payment, ...(result || {}) });
+});
+
+app.post('/api/admin/expenses', requireLogin, (req, res) => {
+  const db = readDb();
+  const amount = Math.max(0, roundMoney(cleanNumber(req.body.amount, 0)));
+  if (!amount) return res.status(400).json({ ok: false, message: 'Monto requerido' });
+  const expense = {
+    id: makeId('expense'),
+    concept: cleanString(req.body.concept || 'Egreso', 120),
+    category: cleanString(req.body.category || 'general', 60),
+    provider: cleanString(req.body.provider || '', 120),
+    amount,
+    method: ['cash', 'card', 'transfer', 'other'].includes(req.body.method) ? req.body.method : 'cash',
+    note: cleanString(req.body.note || '', 300),
+    businessDate: cleanString(req.body.businessDate || businessDate(), 20),
+    createdBy: req.session.adminUser || 'Admin',
+    createdAt: nowIso(),
+    updatedAt: nowIso(),
+    status: 'active'
+  };
+  db.expenses.unshift(expense);
+  writeDb(db);
+  res.json({ ok: true, expense });
+});
+
+app.delete('/api/admin/expenses/:id', requireLogin, (req, res) => {
+  const db = readDb();
+  const expense = (db.expenses || []).find(item => item.id === req.params.id);
+  if (!expense) return res.status(404).json({ ok: false, message: 'Egreso no encontrado' });
+  expense.status = 'cancelled';
+  expense.updatedAt = nowIso();
+  expense.cancelledBy = req.session.adminUser || 'Admin';
+  writeDb(db);
+  res.json({ ok: true, expense });
+});
+
+app.get('/api/admin/finance/summary', requireLogin, (req, res) => {
+  const db = readDb();
+  const date = cleanString(req.query.date || businessDate(), 20);
+  res.json({ ok: true, ...computeDailyFinanceSummary(db, date) });
+});
+
+app.post('/api/admin/daily-close', requireLogin, (req, res) => {
+  const db = readDb();
+  const date = cleanString(req.body.businessDate || businessDate(), 20);
+  const summary = computeDailyFinanceSummary(db, date);
+  const openingCash = Math.max(0, roundMoney(cleanNumber(req.body.openingCash, 0)));
+  const countedCash = Math.max(0, roundMoney(cleanNumber(req.body.countedCash, 0)));
+  const expectedCash = roundMoney(openingCash + summary.netCashExpected);
+  const difference = roundMoney(countedCash - expectedCash);
+  const closure = {
+    id: makeId('daily-close'),
+    businessDate: date,
+    openingCash,
+    countedCash,
+    expectedCash,
+    difference,
+    notes: cleanString(req.body.notes || '', 500),
+    summary: {
+      salesByMethod: summary.salesByMethod,
+      expenseTotal: summary.expenseTotal,
+      netCashExpected: summary.netCashExpected,
+      ticketAverage: summary.ticketAverage,
+      paymentCount: summary.paymentCount,
+      tableClosureCount: summary.tableClosureCount
+    },
+    closedBy: req.session.adminUser || 'Admin',
+    createdAt: nowIso(),
+    updatedAt: nowIso()
+  };
+  db.dailyClosures = (db.dailyClosures || []).filter(item => item.businessDate !== date);
+  db.dailyClosures.unshift(closure);
+  writeDb(db);
+  res.json({ ok: true, closure });
+});
+
 
 app.post('/api/admin/tables/:tableId/take/:staffId', requireLogin, (req, res) => {
   const db = readDb();

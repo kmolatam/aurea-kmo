@@ -2,6 +2,7 @@ let staffDb = null;
 let refreshTimer = null;
 let currentStaffOrderTableId = null;
 let currentOrderMode = 'session';
+let currentPaymentTableId = null;
 const STAFF_JS_VERSION = '0.8.5';
 let notificationsBaselineReady = false;
 const seenAlertIds = new Set();
@@ -223,8 +224,11 @@ function renderSessions() {
         <div class="inline-actions end">
           ${mine ? `
             <button class="btn small secondary" onclick="openStaffOrderModal('${session.tableId}')">Levantar pedido</button>
-            ${session.paymentStatus === 'paid' ? '<span class="pill">Pagada</span>' : `<button class="btn small secondary" onclick="markTablePaid('${session.tableId}')">Mesa pagada</button>`}
-            <button class="btn small success" onclick="closeTable('${session.tableId}')">Cerrar mesa</button>
+            ${session.paymentStatus === 'paid'
+              ? `<span class="pill">Pago autorizado</span><button class="btn small success" onclick="closeTable('${session.tableId}')">Cerrar mesa</button>`
+              : session.paymentStatus === 'pending_approval'
+                ? '<span class="pill">Pendiente autorización</span>'
+                : `<button class="btn small secondary" onclick="openStaffPaymentModal('${session.tableId}')">Capturar pago</button>`}
           ` : `<button class="btn small success" onclick="takeTable('${session.tableId}')">Tomar mesa</button>`}
         </div>
       </div>
@@ -271,10 +275,46 @@ async function releaseTable(tableId) {
   }
 }
 
-async function markTablePaid(tableId) {
+function staffTableSubtotal(tableId) {
+  const session = (staffDb.tableSessions || []).find(item => item.tableId === tableId && item.status === 'active');
+  const orders = (staffDb.orders || []).filter(order => order.tableId === tableId && order.status !== 'cancelled' && (!session || order.sessionId === session.id));
+  return orders.reduce((sum, order) => sum + Number(order.total || 0), 0);
+}
+
+function openStaffPaymentModal(tableId) {
+  currentPaymentTableId = tableId;
+  const session = (staffDb.tableSessions || []).find(item => item.tableId === tableId && item.status === 'active');
+  const table = (staffDb.tables || []).find(item => item.id === tableId);
+  const subtotal = staffTableSubtotal(tableId);
+  document.getElementById('staffPaymentTableName').textContent = `${session?.tableName || table?.name || 'Mesa'} · Total estimado ${money(subtotal)}`;
+  document.getElementById('staffPaymentMethod').value = 'cash';
+  document.getElementById('staffPaymentAmount').value = subtotal ? String(subtotal) : '';
+  document.getElementById('staffPaymentTip').value = '';
+  document.getElementById('staffPaymentDiscount').value = '';
+  document.getElementById('staffPaymentNote').value = '';
+  document.getElementById('staffPaymentModal').classList.add('active');
+}
+
+function closeStaffPaymentModal() {
+  currentPaymentTableId = null;
+  document.getElementById('staffPaymentModal').classList.remove('active');
+}
+
+async function submitStaffPayment() {
+  if (!currentPaymentTableId) return;
   try {
-    await api(`/api/staff/tables/${tableId}/paid`, { method: 'POST' });
-    toast('Mesa marcada como pagada');
+    await api(`/api/staff/tables/${currentPaymentTableId}/paid`, {
+      method: 'POST',
+      body: JSON.stringify({
+        method: document.getElementById('staffPaymentMethod').value,
+        amountPaid: document.getElementById('staffPaymentAmount').value,
+        tipAmount: document.getElementById('staffPaymentTip').value,
+        discountAmount: document.getElementById('staffPaymentDiscount').value,
+        note: document.getElementById('staffPaymentNote').value
+      })
+    });
+    closeStaffPaymentModal();
+    toast('Pago enviado a autorización');
     await loadStaffData();
   } catch (error) {
     toast(error.message);

@@ -45,3 +45,18 @@ Si la mesa seleccionada no tiene sesión activa, AUREA crea la sesión automáti
   - `/superadmin`
   - `/superadmin.html`
 - La ruta sigue protegida por sesión de rol `superadmin`.
+
+
+## Corte diario v0.8.7
+
+Agrega:
+- Pagos capturados por mesero y autorizados por admin/capitán.
+- Corte diario con efectivo, tarjeta, transferencia, egresos y diferencia de caja.
+- Egresos del día con concepto, proveedor, método y nota.
+- Cierre del día con fondo inicial, efectivo contado y resumen copiable.
+
+Flujo recomendado:
+1. Mesero captura pago.
+2. Admin autoriza pago en Corte diario.
+3. Admin cierra mesa.
+4. Al final del día, admin registra egresos y hace cierre.

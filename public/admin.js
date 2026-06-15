@@ -95,6 +95,7 @@ function renderAll() {
   renderCommandBoard();
   renderTeam();
   renderHistory();
+  renderFinance();
   renderCategories();
   renderMenu();
   renderTables();
@@ -109,6 +110,7 @@ function renderLiveData() {
   renderCommandBoard();
   renderTeam();
   renderHistory();
+  renderFinance();
 }
 
 function renderStats() {
@@ -256,6 +258,212 @@ function renderCommandBoard() {
     el.innerHTML = orders.length ? orders.map(order => orderCard(order, false)).join('') : '<div class="item"><div>Sin comandas.</div></div>';
   }
 }
+
+
+function todayBusinessDate() {
+  const now = new Date();
+  const offset = now.getTimezoneOffset();
+  const local = new Date(now.getTime() - offset * 60000);
+  return local.toISOString().slice(0, 10);
+}
+
+function itemBusinessDate(value) {
+  if (!value) return todayBusinessDate();
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value).slice(0, 10);
+  const offset = date.getTimezoneOffset();
+  const local = new Date(date.getTime() - offset * 60000);
+  return local.toISOString().slice(0, 10);
+}
+
+function paymentMethodName(value) {
+  const labels = {
+    cash: 'Efectivo',
+    card: 'Tarjeta',
+    transfer: 'Transferencia',
+    mixed: 'Mixto',
+    split: 'Dividido',
+    pending: 'Por definir',
+    other: 'Otro'
+  };
+  return labels[value] || labels.pending;
+}
+
+function selectedFinanceDate() {
+  const input = document.getElementById('financeDate');
+  if (!input) return todayBusinessDate();
+  if (!input.value) input.value = todayBusinessDate();
+  return input.value;
+}
+
+function financeSummaryForDate(date) {
+  const payments = (db.payments || []).filter(payment => payment.status === 'approved' && (payment.businessDate || itemBusinessDate(payment.approvedAt || payment.createdAt)) === date);
+  const pendingPayments = (db.payments || []).filter(payment => ['pending_admin', 'pending_approval'].includes(payment.status || '') && (payment.businessDate || itemBusinessDate(payment.createdAt)) === date);
+  const expenses = (db.expenses || []).filter(expense => expense.status !== 'cancelled' && (expense.businessDate || itemBusinessDate(expense.createdAt)) === date);
+  const dailyClose = (db.dailyClosures || []).find(item => item.businessDate === date);
+  const sales = payments.reduce((acc, payment) => {
+    acc.cash += Number(payment.cashAmount || 0);
+    acc.card += Number(payment.cardAmount || 0);
+    acc.transfer += Number(payment.transferAmount || 0);
+    acc.other += Number(payment.otherAmount || 0);
+    acc.total += Number(payment.totalDue || payment.totalPaid || 0);
+    acc.tips += Number(payment.tipAmount || 0);
+    acc.discounts += Number(payment.discountAmount || 0);
+    return acc;
+  }, { cash: 0, card: 0, transfer: 0, other: 0, total: 0, tips: 0, discounts: 0 });
+  const expenseTotal = expenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
+  return { payments, pendingPayments, expenses, dailyClose, sales, expenseTotal, netCashExpected: sales.cash - expenseTotal };
+}
+
+function renderFinance() {
+  if (!db) return;
+  const dateInput = document.getElementById('financeDate');
+  if (!dateInput) return;
+  if (!dateInput.value) dateInput.value = todayBusinessDate();
+  const date = selectedFinanceDate();
+  const summary = financeSummaryForDate(date);
+
+  document.getElementById('financeTotalSales').textContent = money(summary.sales.total);
+  document.getElementById('financeCash').textContent = money(summary.sales.cash);
+  document.getElementById('financeCard').textContent = money(summary.sales.card);
+  document.getElementById('financeTransfer').textContent = money(summary.sales.transfer);
+  document.getElementById('pendingPaymentsPill').textContent = `${summary.pendingPayments.length} pendientes`;
+  document.getElementById('expenseTotalPill').textContent = money(summary.expenseTotal);
+
+  renderPendingPayments(summary.pendingPayments);
+  renderExpenses(summary.expenses);
+  renderDailyClosePreview(summary);
+}
+
+function renderPendingPayments(payments) {
+  const el = document.getElementById('pendingPaymentsList');
+  if (!el) return;
+  if (!payments.length) {
+    el.innerHTML = '<div class="item"><div>No hay pagos pendientes.</div></div>';
+    return;
+  }
+  el.innerHTML = payments.map(payment => `
+    <div class="item" style="align-items:flex-start;">
+      <div class="item-main">
+        <div class="item-title">${escapeHtml(payment.tableName || 'Mesa')} · ${money(payment.totalDue || payment.totalPaid || 0)}</div>
+        <div class="item-meta">${escapeHtml(paymentMethodName(payment.method))} · Capturó: ${escapeHtml(payment.createdByStaffName || payment.createdBy || 'staff')} · ${dateTime(payment.createdAt)}</div>
+        <div class="item-meta">Subtotal: ${money(payment.subtotal)} · Propina: ${money(payment.tipAmount)} · Descuento: ${money(payment.discountAmount)}</div>
+        ${payment.note ? `<div class="item-meta">Nota: ${escapeHtml(payment.note)}</div>` : ''}
+      </div>
+      <div class="inline-actions end">
+        <button class="btn small success" onclick="approvePayment('${payment.id}', true)">Autorizar y cerrar mesa</button>
+        <button class="btn small secondary" onclick="approvePayment('${payment.id}', false)">Solo autorizar</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function renderExpenses(expenses) {
+  const el = document.getElementById('expensesList');
+  if (!el) return;
+  if (!expenses.length) {
+    el.innerHTML = '<div class="item"><div>No hay egresos registrados.</div></div>';
+    return;
+  }
+  el.innerHTML = expenses.map(expense => `
+    <div class="item">
+      <div class="item-main">
+        <div class="item-title">${escapeHtml(expense.concept)} · ${money(expense.amount)}</div>
+        <div class="item-meta">${escapeHtml(paymentMethodName(expense.method))}${expense.provider ? ` · ${escapeHtml(expense.provider)}` : ''} · ${dateTime(expense.createdAt)}</div>
+        ${expense.note ? `<div class="item-meta">${escapeHtml(expense.note)}</div>` : ''}
+      </div>
+      <button class="btn danger small" onclick="deleteExpense('${expense.id}')">Cancelar</button>
+    </div>
+  `).join('');
+}
+
+function renderDailyClosePreview(summary) {
+  const status = document.getElementById('dailyCloseStatus');
+  const box = document.getElementById('dailyClosePreview');
+  if (!status || !box) return;
+  if (summary.dailyClose) {
+    status.textContent = `cerrado por ${summary.dailyClose.closedBy || 'Admin'}`;
+  } else {
+    status.textContent = 'sin cierre';
+  }
+  const opening = Number(document.getElementById('openingCash')?.value || summary.dailyClose?.openingCash || 0);
+  const counted = Number(document.getElementById('countedCash')?.value || summary.dailyClose?.countedCash || 0);
+  const expected = opening + summary.netCashExpected;
+  const diff = counted - expected;
+  box.innerHTML = `
+    <div><span>Fondo inicial</span><strong>${money(opening)}</strong></div>
+    <div><span>Efectivo ventas</span><strong>${money(summary.sales.cash)}</strong></div>
+    <div><span>Egresos</span><strong>${money(summary.expenseTotal)}</strong></div>
+    <div><span>Efectivo esperado</span><strong>${money(expected)}</strong></div>
+    <div><span>Efectivo contado</span><strong>${money(counted)}</strong></div>
+    <div><span>Diferencia</span><strong>${money(diff)}</strong></div>
+  `;
+}
+
+async function approvePayment(paymentId, closeTable = true) {
+  try {
+    await api(`/api/admin/payments/${paymentId}/approve`, {
+      method: 'POST',
+      body: JSON.stringify({ closeTable })
+    });
+    toast(closeTable ? 'Pago autorizado y mesa cerrada' : 'Pago autorizado');
+    await loadData(false);
+  } catch (error) {
+    toast(error.message);
+  }
+}
+
+async function deleteExpense(id) {
+  if (!confirm('¿Cancelar este egreso?')) return;
+  try {
+    await api(`/api/admin/expenses/${id}`, { method: 'DELETE' });
+    toast('Egreso cancelado');
+    await loadData(false);
+  } catch (error) {
+    toast(error.message);
+  }
+}
+
+function dailyCloseText() {
+  const date = selectedFinanceDate();
+  const summary = financeSummaryForDate(date);
+  const opening = Number(document.getElementById('openingCash')?.value || summary.dailyClose?.openingCash || 0);
+  const counted = Number(document.getElementById('countedCash')?.value || summary.dailyClose?.countedCash || 0);
+  const expected = opening + summary.netCashExpected;
+  const diff = counted - expected;
+  return [
+    `CORTE DIARIO · ${db.restaurant?.name || 'AUREA'}`,
+    `Fecha: ${date}`,
+    ``,
+    `Ventas:`,
+    `Efectivo: ${money(summary.sales.cash)}`,
+    `Tarjeta: ${money(summary.sales.card)}`,
+    `Transferencia: ${money(summary.sales.transfer)}`,
+    `Otro: ${money(summary.sales.other)}`,
+    `Total vendido: ${money(summary.sales.total)}`,
+    ``,
+    `Egresos: ${money(summary.expenseTotal)}`,
+    ``,
+    `Caja:`,
+    `Fondo inicial: ${money(opening)}`,
+    `Efectivo esperado: ${money(expected)}`,
+    `Efectivo contado: ${money(counted)}`,
+    `Diferencia: ${money(diff)}`,
+    ``,
+    `Pagos autorizados: ${summary.payments.length}`,
+    `Pagos pendientes: ${summary.pendingPayments.length}`
+  ].join('\n');
+}
+
+async function copyDailyCloseSummary() {
+  try {
+    await navigator.clipboard.writeText(dailyCloseText());
+    toast('Corte copiado');
+  } catch (error) {
+    toast('No se pudo copiar');
+  }
+}
+
 
 function renderCategories() {
   const select = document.getElementById('itemCategory');
@@ -1181,5 +1389,52 @@ document.getElementById('whatsappOrderForm')?.addEventListener('submit', async e
 document.getElementById('promoMessage')?.addEventListener('input', () => {
   if (db) renderCRM();
 });
+
+
+document.getElementById('expenseForm')?.addEventListener('submit', async event => {
+  event.preventDefault();
+  try {
+    await api('/api/admin/expenses', {
+      method: 'POST',
+      body: JSON.stringify({
+        businessDate: selectedFinanceDate(),
+        concept: document.getElementById('expenseConcept').value,
+        amount: document.getElementById('expenseAmount').value,
+        method: document.getElementById('expenseMethod').value,
+        provider: document.getElementById('expenseProvider').value,
+        note: document.getElementById('expenseNote').value
+      })
+    });
+    event.target.reset();
+    toast('Egreso registrado');
+    await loadData(false);
+  } catch (error) {
+    toast(error.message);
+  }
+});
+
+document.getElementById('dailyCloseForm')?.addEventListener('submit', async event => {
+  event.preventDefault();
+  try {
+    await api('/api/admin/daily-close', {
+      method: 'POST',
+      body: JSON.stringify({
+        businessDate: selectedFinanceDate(),
+        openingCash: document.getElementById('openingCash').value,
+        countedCash: document.getElementById('countedCash').value,
+        notes: document.getElementById('dailyCloseNotes').value
+      })
+    });
+    toast('Día cerrado');
+    await loadData(false);
+  } catch (error) {
+    toast(error.message);
+  }
+});
+
+['financeDate', 'openingCash', 'countedCash'].forEach(id => {
+  document.getElementById(id)?.addEventListener('input', () => renderFinance());
+});
+
 
 checkSession();
