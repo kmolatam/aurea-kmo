@@ -3,6 +3,10 @@ let refreshTimer = null;
 let currentStaffOrderTableId = null;
 let currentOrderMode = 'session';
 let currentPaymentTableId = null;
+let currentStaffOrderDraft = [];
+let currentStaffCategoryId = '';
+let currentStaffEditingItemId = '';
+let guidedTourState = null;
 const STAFF_JS_VERSION = '0.8.5';
 let notificationsBaselineReady = false;
 const seenAlertIds = new Set();
@@ -85,6 +89,8 @@ async function checkStaffSession() {
 function showStaffApp() {
   document.getElementById('staffLogin').style.display = 'none';
   document.getElementById('staffApp').style.display = 'block';
+  ensureAureaAssist('staff');
+  showAureaReleaseNotesOnce('staff');
   updateNotificationPrompt();
   if (canUseNotifications() && Notification.permission !== 'granted') {
     toast('Tip: activa notificaciones para recibir comandas y alertas en tiempo real.');
@@ -223,12 +229,12 @@ function renderSessions() {
         </div>
         <div class="inline-actions end">
           ${mine ? `
-            <button class="btn small secondary" onclick="openStaffOrderModal('${session.tableId}')">Levantar pedido</button>
+            <button class="btn small secondary" onclick="openStaffOrderModal('${session.tableId}')">Nuevo pedido</button>
             ${session.paymentStatus === 'paid'
               ? `<span class="pill">Pago autorizado</span><button class="btn small success" onclick="closeTable('${session.tableId}')">Cerrar mesa</button>`
               : session.paymentStatus === 'pending_approval'
                 ? '<span class="pill">Pendiente autorización</span>'
-                : `<button class="btn small secondary" onclick="openStaffPaymentModal('${session.tableId}')">Capturar pago</button>`}
+                : `<button class="btn small secondary" onclick="openStaffBillModal('${session.tableId}')">Generar cuenta</button>`}
           ` : `<button class="btn small success" onclick="takeTable('${session.tableId}')">Tomar mesa</button>`}
         </div>
       </div>
@@ -281,6 +287,90 @@ function staffTableSubtotal(tableId) {
   return orders.reduce((sum, order) => sum + Number(order.total || 0), 0);
 }
 
+
+function activeOrdersForTable(tableId) {
+  const session = (staffDb.tableSessions || []).find(item => item.tableId === tableId && item.status === 'active');
+  return (staffDb.orders || []).filter(order => order.tableId === tableId && order.status !== 'cancelled' && (!session || order.sessionId === session.id));
+}
+
+function billLinesForTable(tableId) {
+  const lines = [];
+  for (const order of activeOrdersForTable(tableId)) {
+    for (const item of order.items || []) {
+      lines.push({
+        orderId: order.id,
+        commandNumber: order.commandNumber || '',
+        name: item.name || 'Producto',
+        qty: Number(item.qty || 0),
+        price: Number(item.price || 0),
+        subtotal: Number(item.subtotal !== undefined ? item.subtotal : Number(item.qty || 0) * Number(item.price || 0)),
+        note: item.note || '',
+        dinerName: item.dinerName || item.personName || ''
+      });
+    }
+  }
+  return lines;
+}
+
+function groupedBillForTable(tableId) {
+  const lines = billLinesForTable(tableId);
+  const groups = new Map();
+  for (const line of lines) {
+    const key = (line.dinerName || 'Mesa completa').trim() || 'Mesa completa';
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(line);
+  }
+  return Array.from(groups.entries()).map(([name, groupLines]) => ({
+    name,
+    lines: groupLines,
+    total: groupLines.reduce((sum, line) => sum + Number(line.subtotal || 0), 0)
+  }));
+}
+
+function openStaffBillModal(tableId) {
+  currentPaymentTableId = tableId;
+  const session = (staffDb.tableSessions || []).find(item => item.tableId === tableId && item.status === 'active');
+  const table = (staffDb.tables || []).find(item => item.id === tableId);
+  const lines = billLinesForTable(tableId);
+  const groups = groupedBillForTable(tableId);
+  const total = lines.reduce((sum, line) => sum + Number(line.subtotal || 0), 0);
+
+  document.getElementById('staffBillTableName').textContent = `${session?.tableName || table?.name || 'Mesa'} · Cuenta generada`;
+  document.getElementById('staffBillTotal').textContent = money(total);
+  document.getElementById('staffBillList').innerHTML = lines.length ? `
+    <div class="bill-lines">
+      ${lines.map(line => `
+        <div class="bill-line">
+          <span>${escapeHtml(line.qty)} × ${escapeHtml(line.name)}${line.dinerName ? ` · ${escapeHtml(line.dinerName)}` : ''}</span>
+          <strong>${money(line.subtotal)}</strong>
+        </div>
+      `).join('')}
+    </div>
+    <h3 style="margin:16px 0 8px;">Cuentas separadas</h3>
+    <div class="split-account-list">
+      ${groups.map(group => `
+        <div class="split-account-card">
+          <strong>${escapeHtml(group.name)}</strong>
+          <span>${money(group.total)}</span>
+          <small>${group.lines.map(line => `${line.qty}× ${line.name}`).join(', ')}</small>
+        </div>
+      `).join('')}
+    </div>
+  ` : '<div class="item"><div>Esta mesa todavía no tiene productos registrados.</div></div>';
+
+  document.getElementById('staffBillModal').classList.add('active');
+}
+
+function closeStaffBillModal() {
+  document.getElementById('staffBillModal').classList.remove('active');
+}
+
+function goToPaymentFromBill() {
+  const tableId = currentPaymentTableId;
+  closeStaffBillModal();
+  openStaffPaymentModal(tableId);
+}
+
 function openStaffPaymentModal(tableId) {
   currentPaymentTableId = tableId;
   const session = (staffDb.tableSessions || []).find(item => item.tableId === tableId && item.status === 'active');
@@ -314,7 +404,7 @@ async function submitStaffPayment() {
       })
     });
     closeStaffPaymentModal();
-    toast('Pago enviado a autorización');
+    toast('Cuenta enviada a autorización');
     await loadStaffData();
   } catch (error) {
     toast(error.message);
@@ -357,7 +447,7 @@ function openManualOrderModal() {
   if (manualFields) manualFields.style.display = 'grid';
   document.getElementById('staffManualCustomerName').value = '';
   document.getElementById('staffManualCustomerPhone').value = '';
-  document.getElementById('staffOrderTableName').textContent = `Comanda manual · tomada por ${staffDb.staff?.name || 'mesero'}`;
+  document.getElementById('staffOrderTableName').textContent = `Nuevo pedido · tomada por ${staffDb.staff?.name || 'mesero'}`;
   document.getElementById('staffOrderNote').value = '';
   document.getElementById('staffOrderModal').classList.add('active');
   renderStaffOrderItems();
@@ -435,6 +525,75 @@ async function reloadMenuFallbackIfNeeded() {
   }
 }
 
+
+function menuCategoriesWithItems() {
+  const items = getStaffMenuItems();
+  const cats = (staffDb.categories || []).filter(cat => items.some(item => item.categoryId === cat.id));
+  const missing = items.some(item => !item.categoryId || !cats.find(cat => cat.id === item.categoryId));
+  if (missing) cats.push({ id: '__sin_categoria', name: 'Sin categoría' });
+  return cats;
+}
+
+function itemsBySelectedCategory() {
+  const items = getStaffMenuItems();
+  if (!currentStaffCategoryId) {
+    const first = menuCategoriesWithItems()[0];
+    currentStaffCategoryId = first?.id || '';
+  }
+  return items.filter(item => currentStaffCategoryId === '__sin_categoria' ? !item.categoryId : item.categoryId === currentStaffCategoryId);
+}
+
+function draftTotal() {
+  return currentStaffOrderDraft.reduce((sum, item) => sum + Number(item.price || 0) * Number(item.qty || 0), 0);
+}
+
+function draftQtyFor(itemId) {
+  return currentStaffOrderDraft.filter(item => item.itemId === itemId).reduce((sum, item) => sum + Number(item.qty || 0), 0);
+}
+
+function selectStaffCategory(categoryId) {
+  currentStaffCategoryId = categoryId;
+  currentStaffEditingItemId = '';
+  renderStaffOrderItems();
+}
+
+function openStaffItemEditor(itemId) {
+  currentStaffEditingItemId = itemId;
+  renderStaffOrderItems();
+  setTimeout(() => document.getElementById('staffQuickQty')?.focus(), 50);
+}
+
+function closeStaffItemEditor() {
+  currentStaffEditingItemId = '';
+  renderStaffOrderItems();
+}
+
+function addStaffDraftItem(itemId) {
+  const item = getStaffMenuItems().find(product => product.id === itemId);
+  if (!item) return toast('Producto no encontrado');
+  const qty = Math.max(1, Math.min(20, Number(document.getElementById('staffQuickQty')?.value || 1)));
+  const note = document.getElementById('staffQuickNote')?.value || '';
+  const dinerName = document.getElementById('staffQuickDiner')?.value || '';
+  currentStaffOrderDraft.push({
+    localId: `${itemId}-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
+    itemId,
+    name: item.name,
+    price: Number(item.price || 0),
+    qty,
+    note,
+    dinerName,
+    dinerBreakdown: dinerName
+  });
+  currentStaffEditingItemId = '';
+  renderStaffOrderItems();
+  toast(`${item.name} agregado`);
+}
+
+function removeStaffDraftItem(localId) {
+  currentStaffOrderDraft = currentStaffOrderDraft.filter(item => item.localId !== localId);
+  renderStaffOrderItems();
+}
+
 async function renderStaffOrderItems() {
   const el = document.getElementById('staffOrderItems');
   let items = getStaffMenuItems();
@@ -444,44 +603,104 @@ async function renderStaffOrderItems() {
     items = getStaffMenuItems();
   }
   if (!items.length) {
-    el.innerHTML = `<div class="item"><div>No hay productos disponibles para levantar pedido. Abre Admin → Menú, revisa que existan productos y haz recarga dura del navegador si acabas de actualizar AUREA. Versión staff: ${STAFF_JS_VERSION}</div></div>`;
+    el.innerHTML = `<div class="item"><div>No hay productos disponibles. Abre Admin → Menú y revisa productos disponibles. Versión staff: ${STAFF_JS_VERSION}</div></div>`;
     return;
   }
 
-  el.innerHTML = items.map(item => `
-    <div class="item" style="align-items:flex-start;">
-      <div class="item-main">
-        <div class="item-title">${escapeHtml(item.name)} · <span class="price">${money(item.price)}</span></div>
-        <div class="item-meta">${escapeHtml(categoryName(item.categoryId))}${item.description ? ` · ${escapeHtml(item.description)}` : ''}</div>
-        <label style="margin-top:8px;">Nota del producto
-          <input class="input staff-order-note" data-item-id="${escapeHtml(item.id)}" placeholder="Ej. sin cebolla, término medio..." />
-        </label>
-        <label style="margin-top:8px;">Cuenta / persona
-          <input class="input staff-order-diner" data-item-id="${escapeHtml(item.id)}" placeholder="Ej. Eduardo o Eduardo:1, Joel:2" />
-        </label>
+  const cats = menuCategoriesWithItems();
+  if (!currentStaffCategoryId && cats.length) currentStaffCategoryId = cats[0].id;
+  const shownItems = itemsBySelectedCategory();
+  const editingItem = currentStaffEditingItemId ? items.find(item => item.id === currentStaffEditingItemId) : null;
+
+  el.innerHTML = `
+    <div class="order-wizard">
+      <div class="wizard-step">
+        <span class="wizard-dot">1</span>
+        <div>
+          <strong>Elige categoría</strong>
+          <p class="muted">Separado igual que el menú del restaurante.</p>
+        </div>
       </div>
-      <div style="width:96px;">
-        <label>Cantidad
-          <input class="input staff-order-qty" data-item-id="${escapeHtml(item.id)}" type="number" min="0" max="20" value="0" />
-        </label>
+      <div class="category-chips">
+        ${cats.map(cat => `<button type="button" class="chip-btn ${cat.id === currentStaffCategoryId ? 'active' : ''}" onclick="selectStaffCategory('${escapeHtml(cat.id)}')">${escapeHtml(cat.name)}</button>`).join('')}
+      </div>
+
+      <div class="wizard-step">
+        <span class="wizard-dot">2</span>
+        <div>
+          <strong>Elige platillo</strong>
+          <p class="muted">Toca un producto; luego AUREA pide cantidad y nota.</p>
+        </div>
+      </div>
+      <div class="menu-pick-grid">
+        ${shownItems.map(item => `
+          <button type="button" class="menu-pick-card ${draftQtyFor(item.id) ? 'selected' : ''}" onclick="openStaffItemEditor('${escapeHtml(item.id)}')">
+            <strong>${escapeHtml(item.name)}</strong>
+            <span>${money(item.price)}</span>
+            ${item.description ? `<small>${escapeHtml(item.description)}</small>` : ''}
+            ${draftQtyFor(item.id) ? `<em>${draftQtyFor(item.id)} agregado(s)</em>` : ''}
+          </button>
+        `).join('')}
+      </div>
+
+      ${editingItem ? `
+        <div class="quick-item-editor">
+          <div>
+            <h3>${escapeHtml(editingItem.name)}</h3>
+            <p class="muted">${money(editingItem.price)}${editingItem.description ? ` · ${escapeHtml(editingItem.description)}` : ''}</p>
+          </div>
+          <div class="grid">
+            <label class="col-4">Cantidad
+              <input id="staffQuickQty" class="input" type="number" min="1" max="20" value="1" />
+            </label>
+            <label class="col-4">Cuenta / persona
+              <input id="staffQuickDiner" class="input" placeholder="Ej. Mesa, Eduardo, Joel..." />
+            </label>
+            <label class="col-4">Nota
+              <input id="staffQuickNote" class="input" placeholder="Sin cebolla, extra salsa..." />
+            </label>
+          </div>
+          <div class="inline-actions end">
+            <button type="button" class="btn ghost small" onclick="closeStaffItemEditor()">Cancelar</button>
+            <button type="button" class="btn success small" onclick="addStaffDraftItem('${escapeHtml(editingItem.id)}')">Agregar</button>
+          </div>
+        </div>
+      ` : ''}
+
+      <div class="wizard-step">
+        <span class="wizard-dot">3</span>
+        <div>
+          <strong>Revisa pedido</strong>
+          <p class="muted">Total estimado: ${money(draftTotal())}</p>
+        </div>
+      </div>
+      <div class="draft-list">
+        ${currentStaffOrderDraft.length ? currentStaffOrderDraft.map(item => `
+          <div class="draft-row">
+            <div>
+              <strong>${escapeHtml(item.qty)} × ${escapeHtml(item.name)}</strong>
+              <small>${money(Number(item.price || 0) * Number(item.qty || 0))}${item.dinerName ? ` · Cuenta: ${escapeHtml(item.dinerName)}` : ''}${item.note ? ` · ${escapeHtml(item.note)}` : ''}</small>
+            </div>
+            <button type="button" class="btn danger tiny" onclick="removeStaffDraftItem('${escapeHtml(item.localId)}')">Quitar</button>
+          </div>
+        `).join('') : '<div class="item"><div>Selecciona un platillo para empezar.</div></div>'}
       </div>
     </div>
-  `).join('');
+  `;
 }
 
 async function submitStaffOrder() {
   const selectedManualTable = document.getElementById('staffManualTableSelect')?.value || '';
   const tableId = currentOrderMode === 'manual' ? selectedManualTable : currentStaffOrderTableId;
   if (!tableId) return toast('Selecciona una mesa');
-  const items = Array.from(document.querySelectorAll('.staff-order-qty'))
-    .map(input => {
-      const itemId = input.dataset.itemId;
-      const qty = Number(input.value || 0);
-      const noteInput = document.querySelector(`.staff-order-note[data-item-id="${CSS.escape(itemId)}"]`);
-      const dinerInput = document.querySelector(`.staff-order-diner[data-item-id="${CSS.escape(itemId)}"]`);
-      return { itemId, qty, note: noteInput ? noteInput.value : '', dinerName: dinerInput ? dinerInput.value : '', dinerBreakdown: dinerInput ? dinerInput.value : '' };
-    })
-    .filter(item => item.qty > 0);
+
+  const items = currentStaffOrderDraft.map(item => ({
+    itemId: item.itemId,
+    qty: Number(item.qty || 0),
+    note: item.note || '',
+    dinerName: item.dinerName || '',
+    dinerBreakdown: item.dinerBreakdown || item.dinerName || ''
+  })).filter(item => item.qty > 0);
 
   if (!items.length) {
     toast('Agrega al menos un producto');
@@ -503,7 +722,7 @@ async function submitStaffOrder() {
       body: JSON.stringify(payload)
     });
     closeStaffOrderModal();
-    toast(`Comanda #${data.order.commandNumber} levantada`);
+    toast(`Pedido #${data.order.commandNumber} enviado a cocina`);
     await loadStaffData();
   } catch (error) {
     toast(error.message);
@@ -626,3 +845,162 @@ document.getElementById('staffLoginForm').addEventListener('submit', async event
 });
 
 checkStaffSession();
+
+
+const AUREA_SUPPORT_WHATSAPP = '526601552214';
+const AUREA_RELEASE_VERSION = '0.8.8';
+
+function supportWhatsAppUrl(panel) {
+  const restaurant = (typeof staffDb !== 'undefined' && staffDb?.restaurant?.name) || (typeof db !== 'undefined' && db?.restaurant?.name) || (typeof kitchenDb !== 'undefined' && kitchenDb?.restaurant?.name) || 'AUREA';
+  const text = `Hola Lalo, necesito ayuda con AUREA (${panel}) en ${restaurant}.`;
+  return `https://wa.me/${AUREA_SUPPORT_WHATSAPP}?text=${encodeURIComponent(text)}`;
+}
+
+function ensureAureaAssist(panel = 'panel') {
+  if (document.getElementById('aureaAssistDock')) return;
+  const dock = document.createElement('div');
+  dock.id = 'aureaAssistDock';
+  dock.className = 'aurea-assist-dock';
+  dock.innerHTML = `
+    <button class="aurea-tour-float" type="button" onclick="startAureaTour('${panel}')">Tour</button>
+    <a class="aurea-help-float" href="${supportWhatsAppUrl(panel)}" target="_blank" rel="noopener">Ayuda</a>
+  `;
+  document.body.appendChild(dock);
+}
+
+function releaseNotesFor(panel = 'panel') {
+  if (panel === 'staff') {
+    return [
+      'Nuevo pedido: ahora eliges categoría → platillo → cantidad/nota.',
+      'Generar cuenta: revisa total de mesa y cuentas separadas antes de cobrar.',
+      'El pago capturado por mesero queda pendiente hasta autorización de admin.'
+    ];
+  }
+  if (panel === 'kitchen') {
+    return [
+      'Comandas más claras para cocina.',
+      'Botón de Ayuda visible para soporte inmediato.',
+      'Tour disponible por si entra personal nuevo.'
+    ];
+  }
+  return [
+    'Corte diario con pagos, egresos y cierre de caja.',
+    'Pagos de mesero requieren autorización de admin/capitán.',
+    'Nuevo flujo de pedidos más simple para el equipo.'
+  ];
+}
+
+function showAureaReleaseNotesOnce(panel = 'panel') {
+  const key = `aurea-release-seen-${panel}-${AUREA_RELEASE_VERSION}`;
+  if (localStorage.getItem(key)) return;
+  localStorage.setItem(key, '1');
+  const notes = releaseNotesFor(panel);
+  const modal = document.createElement('div');
+  modal.className = 'modal-backdrop active aurea-release-modal';
+  modal.innerHTML = `
+    <div class="modal mini-modal">
+      <div class="section-head">
+        <div>
+          <h2 style="margin:0;">Novedades AUREA ${AUREA_RELEASE_VERSION}</h2>
+          <p class="muted" style="margin:6px 0 0;">Te lo mostramos una sola vez en este dispositivo.</p>
+        </div>
+        <button class="btn ghost small" type="button" data-close-release>Cerrar</button>
+      </div>
+      <div class="release-notes">
+        ${notes.map((note, index) => `<div class="release-note"><strong>${index + 1}</strong><span>${note}</span></div>`).join('')}
+      </div>
+      <div class="inline-actions end" style="margin-top:16px;">
+        <button class="btn secondary" type="button" data-start-tour>Ver tour</button>
+        <button class="btn success" type="button" data-close-release>Entendido</button>
+      </div>
+    </div>
+  `;
+  modal.querySelectorAll('[data-close-release]').forEach(btn => btn.addEventListener('click', () => modal.remove()));
+  modal.querySelector('[data-start-tour]')?.addEventListener('click', () => {
+    modal.remove();
+    startAureaTour(panel);
+  });
+  document.body.appendChild(modal);
+}
+
+function tourStepsFor(panel = 'panel') {
+  if (panel === 'staff') {
+    return [
+      { selector: '.client-hero', title: 'Panel de mesero', text: 'Aquí entras a Nuevo pedido, Cocina, Tour y Ayuda.' },
+      { selector: '#staffSessions', title: 'Mesas activas', text: 'Toma tu mesa y trabaja solo con las mesas asignadas a ti.' },
+      { selector: '#staffSessions', title: 'Nuevo pedido', text: 'En una mesa activa toca Nuevo pedido: eliges categoría, platillo, cantidad y nota.' },
+      { selector: '#staffSessions', title: 'Generar cuenta', text: 'Cuando pidan la cuenta, toca Generar cuenta. Verás total y cuentas separadas.' },
+      { selector: '#staffAlerts', title: 'Alertas', text: 'Aquí aparecen solicitudes del cliente y avisos importantes.' }
+    ];
+  }
+  if (panel === 'kitchen') {
+    return [
+      { selector: '.client-hero', title: 'Cocina', text: 'Aquí se ven las comandas que llegan desde QR o meseros.' },
+      { selector: '#kitchenNew', title: 'Nuevas', text: 'Confirma la comanda y asigna tiempo estimado.' },
+      { selector: '#kitchenProgress', title: 'En preparación', text: 'Marca como listo cuando cocina termine.' },
+      { selector: '#kitchenReady', title: 'Listas', text: 'Aquí quedan las comandas listas para entregar.' }
+    ];
+  }
+  return [
+    { selector: '.sidebar', title: 'Menú admin', text: 'Desde aquí navegas entre comandas, equipo, historial, corte diario, menú y mesas.' },
+    { selector: '#commands', title: 'Comandas', text: 'Monitorea pedidos activos y operación en vivo.' },
+    { selector: '#finance', title: 'Corte diario', text: 'Autoriza pagos, registra egresos y cierra caja.' },
+    { selector: '#menu', title: 'Menú', text: 'Edita categorías, platillos, precios y disponibilidad.' },
+    { selector: '#tables', title: 'Mesas & QR', text: 'Gestiona mesas y códigos QR del restaurante.' }
+  ];
+}
+
+function startAureaTour(panel = 'panel') {
+  const steps = tourStepsFor(panel);
+  let index = 0;
+  const old = document.getElementById('aureaTourOverlay');
+  if (old) old.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'aureaTourOverlay';
+  overlay.className = 'aurea-tour-overlay';
+  overlay.innerHTML = `
+    <div class="aurea-tour-card">
+      <div class="aurea-tour-count"></div>
+      <h3></h3>
+      <p></p>
+      <div class="inline-actions end">
+        <button class="btn ghost small" type="button" data-tour-close>Salir</button>
+        <button class="btn secondary small" type="button" data-tour-prev>Anterior</button>
+        <button class="btn success small" type="button" data-tour-next>Siguiente</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  function renderStep() {
+    document.querySelectorAll('.aurea-tour-highlight').forEach(el => el.classList.remove('aurea-tour-highlight'));
+    const step = steps[index];
+    const target = document.querySelector(step.selector);
+    if (target) {
+      target.classList.add('aurea-tour-highlight');
+      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+    overlay.querySelector('.aurea-tour-count').textContent = `${index + 1} / ${steps.length}`;
+    overlay.querySelector('h3').textContent = step.title;
+    overlay.querySelector('p').textContent = step.text;
+    overlay.querySelector('[data-tour-prev]').style.visibility = index === 0 ? 'hidden' : 'visible';
+    overlay.querySelector('[data-tour-next]').textContent = index === steps.length - 1 ? 'Terminar' : 'Siguiente';
+  }
+
+  function closeTour() {
+    document.querySelectorAll('.aurea-tour-highlight').forEach(el => el.classList.remove('aurea-tour-highlight'));
+    overlay.remove();
+  }
+
+  overlay.querySelector('[data-tour-close]').addEventListener('click', closeTour);
+  overlay.querySelector('[data-tour-prev]').addEventListener('click', () => { if (index > 0) index -= 1; renderStep(); });
+  overlay.querySelector('[data-tour-next]').addEventListener('click', () => {
+    if (index >= steps.length - 1) return closeTour();
+    index += 1;
+    renderStep();
+  });
+
+  renderStep();
+}
+

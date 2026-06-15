@@ -35,7 +35,7 @@
       <h1 id="staffRestaurant">AUREA</h1>
       <p class="muted" style="line-height:1.5; margin:0;">Alertas y comandas en tiempo real desde cualquier celular, sin instalar app.</p>
       <div class="inline-actions" style="margin-top:14px;">
-        <button class="btn small" onclick="openManualOrderModal()">+ Comanda manual</button>
+        <button class="btn small" onclick="openManualOrderModal()">Nuevo pedido</button>
         <a class="btn secondary small" href="/kitchen.html" target="_blank">Cocina</a>
         <button class="btn ghost small" onclick="staffLogout()">Salir</button>
       </div>
@@ -89,7 +89,7 @@
     <div class="modal">
       <div class="section-head">
         <div>
-          <h2 style="margin:0;">Levantar pedido</h2>
+          <h2 style="margin:0;">Nuevo pedido</h2>
           <p id="staffOrderTableName" class="muted" style="margin:6px 0 0;">Mesa</p>
         </div>
         <button class="btn ghost small" onclick="closeStaffOrderModal()">Cerrar</button>
@@ -120,6 +120,29 @@
       <div class="inline-actions end" style="margin-top:16px; position:sticky; bottom:0; background:var(--panel); padding-top:12px;">
         <button class="btn ghost" onclick="closeStaffOrderModal()">Cancelar</button>
         <button class="btn success" onclick="submitStaffOrder()">Enviar comanda</button>
+      </div>
+    </div>
+  </div>
+
+
+
+  <div id="staffBillModal" class="modal-backdrop">
+    <div class="modal">
+      <div class="section-head">
+        <div>
+          <h2 style="margin:0;">Generar cuenta</h2>
+          <p id="staffBillTableName" class="muted" style="margin:6px 0 0;">Mesa</p>
+        </div>
+        <button class="btn ghost small" onclick="closeStaffBillModal()">Cerrar</button>
+      </div>
+      <div class="bill-total-box">
+        <span>Total de la mesa</span>
+        <strong id="staffBillTotal">$0</strong>
+      </div>
+      <div id="staffBillList" class="list"></div>
+      <div class="inline-actions end" style="margin-top:16px;">
+        <button class="btn ghost" onclick="closeStaffBillModal()">Regresar</button>
+        <button class="btn success" onclick="goToPaymentFromBill()">Capturar pago</button>
       </div>
     </div>
   </div>

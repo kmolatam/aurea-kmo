@@ -60,3 +60,20 @@ Flujo recomendado:
 2. Admin autoriza pago en Corte diario.
 3. Admin cierra mesa.
 4. Al final del día, admin registra egresos y hace cierre.
+
+
+## UX meseros v0.8.8
+
+Agrega:
+- Botón “Nuevo pedido”.
+- Flujo de pedido por categorías: categoría → platillo → cantidad/nota/persona → enviar.
+- Generar cuenta por mesa activa.
+- Cuenta separada por persona cuando el mesero etiqueta productos con “Cuenta / persona”.
+- Botón flotante “Tour” en admin, mesero y cocina.
+- Botón flotante “Ayuda” con WhatsApp de soporte: 660 155 2214.
+- Novedades mostradas una sola vez por dispositivo para admin, mesero y cocina.
+
+Regla operativa:
+- Mesero captura pedido y puede generar cuenta.
+- Mesero captura pago, pero queda pendiente.
+- Admin/capitán autoriza pago en Corte diario.

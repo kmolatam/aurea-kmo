@@ -61,6 +61,8 @@ async function checkKitchenSession() {
 function showKitchenApp() {
   document.getElementById('kitchenLogin').style.display = 'none';
   document.getElementById('kitchenApp').style.display = 'block';
+  ensureAureaAssist('kitchen');
+  showAureaReleaseNotesOnce('kitchen');
   loadKitchenData();
   if (!refreshTimer) refreshTimer = setInterval(loadKitchenData, 4000);
 }
@@ -155,3 +157,162 @@ document.getElementById('kitchenLoginForm').addEventListener('submit', async eve
 });
 
 checkKitchenSession();
+
+
+const AUREA_SUPPORT_WHATSAPP = '526601552214';
+const AUREA_RELEASE_VERSION = '0.8.8';
+
+function supportWhatsAppUrl(panel) {
+  const restaurant = (typeof staffDb !== 'undefined' && staffDb?.restaurant?.name) || (typeof db !== 'undefined' && db?.restaurant?.name) || (typeof kitchenDb !== 'undefined' && kitchenDb?.restaurant?.name) || 'AUREA';
+  const text = `Hola Lalo, necesito ayuda con AUREA (${panel}) en ${restaurant}.`;
+  return `https://wa.me/${AUREA_SUPPORT_WHATSAPP}?text=${encodeURIComponent(text)}`;
+}
+
+function ensureAureaAssist(panel = 'panel') {
+  if (document.getElementById('aureaAssistDock')) return;
+  const dock = document.createElement('div');
+  dock.id = 'aureaAssistDock';
+  dock.className = 'aurea-assist-dock';
+  dock.innerHTML = `
+    <button class="aurea-tour-float" type="button" onclick="startAureaTour('${panel}')">Tour</button>
+    <a class="aurea-help-float" href="${supportWhatsAppUrl(panel)}" target="_blank" rel="noopener">Ayuda</a>
+  `;
+  document.body.appendChild(dock);
+}
+
+function releaseNotesFor(panel = 'panel') {
+  if (panel === 'staff') {
+    return [
+      'Nuevo pedido: ahora eliges categoría → platillo → cantidad/nota.',
+      'Generar cuenta: revisa total de mesa y cuentas separadas antes de cobrar.',
+      'El pago capturado por mesero queda pendiente hasta autorización de admin.'
+    ];
+  }
+  if (panel === 'kitchen') {
+    return [
+      'Comandas más claras para cocina.',
+      'Botón de Ayuda visible para soporte inmediato.',
+      'Tour disponible por si entra personal nuevo.'
+    ];
+  }
+  return [
+    'Corte diario con pagos, egresos y cierre de caja.',
+    'Pagos de mesero requieren autorización de admin/capitán.',
+    'Nuevo flujo de pedidos más simple para el equipo.'
+  ];
+}
+
+function showAureaReleaseNotesOnce(panel = 'panel') {
+  const key = `aurea-release-seen-${panel}-${AUREA_RELEASE_VERSION}`;
+  if (localStorage.getItem(key)) return;
+  localStorage.setItem(key, '1');
+  const notes = releaseNotesFor(panel);
+  const modal = document.createElement('div');
+  modal.className = 'modal-backdrop active aurea-release-modal';
+  modal.innerHTML = `
+    <div class="modal mini-modal">
+      <div class="section-head">
+        <div>
+          <h2 style="margin:0;">Novedades AUREA ${AUREA_RELEASE_VERSION}</h2>
+          <p class="muted" style="margin:6px 0 0;">Te lo mostramos una sola vez en este dispositivo.</p>
+        </div>
+        <button class="btn ghost small" type="button" data-close-release>Cerrar</button>
+      </div>
+      <div class="release-notes">
+        ${notes.map((note, index) => `<div class="release-note"><strong>${index + 1}</strong><span>${note}</span></div>`).join('')}
+      </div>
+      <div class="inline-actions end" style="margin-top:16px;">
+        <button class="btn secondary" type="button" data-start-tour>Ver tour</button>
+        <button class="btn success" type="button" data-close-release>Entendido</button>
+      </div>
+    </div>
+  `;
+  modal.querySelectorAll('[data-close-release]').forEach(btn => btn.addEventListener('click', () => modal.remove()));
+  modal.querySelector('[data-start-tour]')?.addEventListener('click', () => {
+    modal.remove();
+    startAureaTour(panel);
+  });
+  document.body.appendChild(modal);
+}
+
+function tourStepsFor(panel = 'panel') {
+  if (panel === 'staff') {
+    return [
+      { selector: '.client-hero', title: 'Panel de mesero', text: 'Aquí entras a Nuevo pedido, Cocina, Tour y Ayuda.' },
+      { selector: '#staffSessions', title: 'Mesas activas', text: 'Toma tu mesa y trabaja solo con las mesas asignadas a ti.' },
+      { selector: '#staffSessions', title: 'Nuevo pedido', text: 'En una mesa activa toca Nuevo pedido: eliges categoría, platillo, cantidad y nota.' },
+      { selector: '#staffSessions', title: 'Generar cuenta', text: 'Cuando pidan la cuenta, toca Generar cuenta. Verás total y cuentas separadas.' },
+      { selector: '#staffAlerts', title: 'Alertas', text: 'Aquí aparecen solicitudes del cliente y avisos importantes.' }
+    ];
+  }
+  if (panel === 'kitchen') {
+    return [
+      { selector: '.client-hero', title: 'Cocina', text: 'Aquí se ven las comandas que llegan desde QR o meseros.' },
+      { selector: '#kitchenNew', title: 'Nuevas', text: 'Confirma la comanda y asigna tiempo estimado.' },
+      { selector: '#kitchenProgress', title: 'En preparación', text: 'Marca como listo cuando cocina termine.' },
+      { selector: '#kitchenReady', title: 'Listas', text: 'Aquí quedan las comandas listas para entregar.' }
+    ];
+  }
+  return [
+    { selector: '.sidebar', title: 'Menú admin', text: 'Desde aquí navegas entre comandas, equipo, historial, corte diario, menú y mesas.' },
+    { selector: '#commands', title: 'Comandas', text: 'Monitorea pedidos activos y operación en vivo.' },
+    { selector: '#finance', title: 'Corte diario', text: 'Autoriza pagos, registra egresos y cierra caja.' },
+    { selector: '#menu', title: 'Menú', text: 'Edita categorías, platillos, precios y disponibilidad.' },
+    { selector: '#tables', title: 'Mesas & QR', text: 'Gestiona mesas y códigos QR del restaurante.' }
+  ];
+}
+
+function startAureaTour(panel = 'panel') {
+  const steps = tourStepsFor(panel);
+  let index = 0;
+  const old = document.getElementById('aureaTourOverlay');
+  if (old) old.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'aureaTourOverlay';
+  overlay.className = 'aurea-tour-overlay';
+  overlay.innerHTML = `
+    <div class="aurea-tour-card">
+      <div class="aurea-tour-count"></div>
+      <h3></h3>
+      <p></p>
+      <div class="inline-actions end">
+        <button class="btn ghost small" type="button" data-tour-close>Salir</button>
+        <button class="btn secondary small" type="button" data-tour-prev>Anterior</button>
+        <button class="btn success small" type="button" data-tour-next>Siguiente</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  function renderStep() {
+    document.querySelectorAll('.aurea-tour-highlight').forEach(el => el.classList.remove('aurea-tour-highlight'));
+    const step = steps[index];
+    const target = document.querySelector(step.selector);
+    if (target) {
+      target.classList.add('aurea-tour-highlight');
+      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+    overlay.querySelector('.aurea-tour-count').textContent = `${index + 1} / ${steps.length}`;
+    overlay.querySelector('h3').textContent = step.title;
+    overlay.querySelector('p').textContent = step.text;
+    overlay.querySelector('[data-tour-prev]').style.visibility = index === 0 ? 'hidden' : 'visible';
+    overlay.querySelector('[data-tour-next]').textContent = index === steps.length - 1 ? 'Terminar' : 'Siguiente';
+  }
+
+  function closeTour() {
+    document.querySelectorAll('.aurea-tour-highlight').forEach(el => el.classList.remove('aurea-tour-highlight'));
+    overlay.remove();
+  }
+
+  overlay.querySelector('[data-tour-close]').addEventListener('click', closeTour);
+  overlay.querySelector('[data-tour-prev]').addEventListener('click', () => { if (index > 0) index -= 1; renderStep(); });
+  overlay.querySelector('[data-tour-next]').addEventListener('click', () => {
+    if (index >= steps.length - 1) return closeTour();
+    index += 1;
+    renderStep();
+  });
+
+  renderStep();
+}
+

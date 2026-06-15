@@ -1,7 +1,7 @@
 {
   "name": "aurea-by-kmo-mvp",
-  "version": "0.8.7-daily-close",
-  "description": "AUREA by KMO - módulo de corte diario, pagos autorizados y egresos",
+  "version": "0.8.8-staff-ux",
+  "description": "AUREA by KMO - pedidos por categorías, cuenta por mesa, tours, ayuda y novedades",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"

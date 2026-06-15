@@ -1061,7 +1061,7 @@ function computeStaffStats(db) {
 }
 
 app.get('/health', (req, res) => {
-  res.json({ ok: true, product: 'AUREA by KMO', version: '0.8.7-daily-close' });
+  res.json({ ok: true, product: 'AUREA by KMO', version: '0.8.8-staff-ux' });
 });
 
 app.get('/t/:tableId', (req, res) => {
