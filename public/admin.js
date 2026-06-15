@@ -59,8 +59,6 @@ async function api(url, options = {}) {
 
 async function checkSession() {
   const session = await api('/api/session');
-  const superLink = document.getElementById('superAdminLink');
-  if (superLink) superLink.style.display = session.role === 'superadmin' ? 'block' : 'none';
   if (session.isAdmin) showAdmin();
 }
 
@@ -910,6 +908,101 @@ function generateStaffPin() {
 }
 
 document.getElementById('staffPin')?.addEventListener('input', updateStaffPinPreview);
+
+
+function fillAdminManualSelectors() {
+  const tableSelect = document.getElementById('adminManualTableSelect');
+  const staffSelect = document.getElementById('adminManualStaffSelect');
+  if (tableSelect) {
+    tableSelect.innerHTML = (db.tables || []).length
+      ? db.tables.map(table => `<option value="${escapeHtml(table.id)}">${escapeHtml(table.name)}</option>`).join('')
+      : '<option value="">No hay mesas configuradas</option>';
+  }
+  if (staffSelect) {
+    const activeStaff = (db.staff || []).filter(member => member.active !== false);
+    staffSelect.innerHTML = '<option value="">Sin asignar / Admin</option>' + activeStaff.map(member => `<option value="${escapeHtml(member.id)}">${escapeHtml(member.name)} · ${escapeHtml(member.role || 'Mesero')}</option>`).join('');
+  }
+}
+
+function openAdminManualOrderModal() {
+  fillAdminManualSelectors();
+  document.getElementById('adminManualCustomerName').value = '';
+  document.getElementById('adminManualCustomerPhone').value = '';
+  document.getElementById('adminManualNote').value = '';
+  document.getElementById('adminManualOrderModal').classList.add('active');
+  renderAdminManualItems();
+}
+
+function closeAdminManualOrderModal() {
+  document.getElementById('adminManualOrderModal').classList.remove('active');
+}
+
+function renderAdminManualItems() {
+  const el = document.getElementById('adminManualItems');
+  const items = (db.menuItems || []).filter(item => item.available !== false && item.active !== false && item.isAvailable !== false);
+  if (!items.length) {
+    el.innerHTML = '<div class="item"><div>No hay productos disponibles. Primero agrega productos en Menú.</div></div>';
+    return;
+  }
+  el.innerHTML = items.map(item => {
+    const category = db.categories.find(cat => cat.id === item.categoryId);
+    return `
+      <div class="item" style="align-items:flex-start;">
+        <div class="item-main">
+          <div class="item-title">${escapeHtml(item.name)} · <span class="price">${money(item.price)}</span></div>
+          <div class="item-meta">${escapeHtml(category?.name || 'Sin categoría')}${item.description ? ` · ${escapeHtml(item.description)}` : ''}</div>
+          <label style="margin-top:8px;">Nota del producto
+            <input class="input admin-manual-note" data-item-id="${escapeHtml(item.id)}" placeholder="Ej. sin cebolla, término medio..." />
+          </label>
+          <label style="margin-top:8px;">Cuenta / persona
+            <input class="input admin-manual-diner" data-item-id="${escapeHtml(item.id)}" placeholder="Ej. Eduardo o Eduardo:1, Joel:2" />
+          </label>
+        </div>
+        <div style="width:96px;">
+          <label>Cantidad
+            <input class="input admin-manual-qty" data-item-id="${escapeHtml(item.id)}" type="number" min="0" max="20" value="0" />
+          </label>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+async function submitAdminManualOrder() {
+  const tableId = document.getElementById('adminManualTableSelect')?.value || '';
+  if (!tableId) return toast('Selecciona una mesa');
+  const items = Array.from(document.querySelectorAll('.admin-manual-qty'))
+    .map(input => {
+      const itemId = input.dataset.itemId;
+      const qty = Number(input.value || 0);
+      const noteInput = document.querySelector(`.admin-manual-note[data-item-id="${CSS.escape(itemId)}"]`);
+      const dinerInput = document.querySelector(`.admin-manual-diner[data-item-id="${CSS.escape(itemId)}"]`);
+      return { itemId, qty, note: noteInput ? noteInput.value : '', dinerName: dinerInput ? dinerInput.value : '', dinerBreakdown: dinerInput ? dinerInput.value : '' };
+    })
+    .filter(item => item.qty > 0);
+
+  if (!items.length) return toast('Agrega al menos un producto');
+
+  try {
+    const data = await api('/api/admin/manual-order', {
+      method: 'POST',
+      body: JSON.stringify({
+        tableId,
+        staffId: document.getElementById('adminManualStaffSelect')?.value || '',
+        customerName: document.getElementById('adminManualCustomerName')?.value || '',
+        customerPhone: document.getElementById('adminManualCustomerPhone')?.value || '',
+        note: document.getElementById('adminManualNote')?.value || '',
+        items
+      })
+    });
+    closeAdminManualOrderModal();
+    toast(`Comanda #${data.order.commandNumber} creada`);
+    await loadData(true);
+  } catch (error) {
+    toast(error.message);
+  }
+}
+
 
 document.getElementById('loginForm').addEventListener('submit', async event => {
   event.preventDefault();

@@ -27,3 +27,21 @@ Uso:
 6. Deploy de la instancia nueva.
 
 Este portal genera credenciales, PIN inicial, `SESSION_SECRET`, `AUREA_DB_PATH`, checklist y mensaje para entregar al cliente.
+
+
+## Comanda manual
+
+Versión 0.8.5 agrega comanda manual desde:
+- Portal meseros: botón `+ Comanda manual`
+- Portal administrador: Comandas → `+ Comanda manual`
+
+Si la mesa seleccionada no tiene sesión activa, AUREA crea la sesión automáticamente y manda la comanda a cocina.
+
+
+## Hotfix 0.8.6
+
+- Se eliminó el botón visible de `Portal super admin` de la barra lateral del cliente.
+- El portal maestro queda accesible únicamente escribiendo manualmente:
+  - `/superadmin`
+  - `/superadmin.html`
+- La ruta sigue protegida por sesión de rol `superadmin`.

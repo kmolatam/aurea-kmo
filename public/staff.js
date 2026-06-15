@@ -1,7 +1,8 @@
 let staffDb = null;
 let refreshTimer = null;
 let currentStaffOrderTableId = null;
-const STAFF_JS_VERSION = '0.8.3';
+let currentOrderMode = 'session';
+const STAFF_JS_VERSION = '0.8.5';
 let notificationsBaselineReady = false;
 const seenAlertIds = new Set();
 const seenOrderIds = new Set();
@@ -297,8 +298,37 @@ function categoryName(categoryId) {
   return category ? category.name : 'Sin categoría';
 }
 
+
+function fillManualTableSelect(selectedId = '') {
+  const select = document.getElementById('staffManualTableSelect');
+  if (!select) return;
+  const tables = staffDb?.tables || [];
+  select.innerHTML = tables.length
+    ? tables.map(table => `<option value="${escapeHtml(table.id)}" ${table.id === selectedId ? 'selected' : ''}>${escapeHtml(table.name)}</option>`).join('')
+    : '<option value="">No hay mesas configuradas</option>';
+}
+
+function openManualOrderModal() {
+  currentOrderMode = 'manual';
+  const firstTable = (staffDb?.tables || [])[0];
+  currentStaffOrderTableId = firstTable?.id || null;
+  fillManualTableSelect(currentStaffOrderTableId);
+  const manualFields = document.getElementById('manualOrderFields');
+  if (manualFields) manualFields.style.display = 'grid';
+  document.getElementById('staffManualCustomerName').value = '';
+  document.getElementById('staffManualCustomerPhone').value = '';
+  document.getElementById('staffOrderTableName').textContent = `Comanda manual · tomada por ${staffDb.staff?.name || 'mesero'}`;
+  document.getElementById('staffOrderNote').value = '';
+  document.getElementById('staffOrderModal').classList.add('active');
+  renderStaffOrderItems();
+}
+
+
 function openStaffOrderModal(tableId) {
+  currentOrderMode = 'session';
   currentStaffOrderTableId = tableId;
+  const manualFields = document.getElementById('manualOrderFields');
+  if (manualFields) manualFields.style.display = 'none';
   const session = (staffDb.tableSessions || []).find(item => item.tableId === tableId && item.status === 'active');
   const table = (staffDb.tables || []).find(item => item.id === tableId);
   document.getElementById('staffOrderTableName').textContent = `${session?.tableName || table?.name || 'Mesa'} · Pedido tomado por ${staffDb.staff?.name || 'mesero'}`;
@@ -309,6 +339,7 @@ function openStaffOrderModal(tableId) {
 
 function closeStaffOrderModal() {
   currentStaffOrderTableId = null;
+  currentOrderMode = 'session';
   document.getElementById('staffOrderModal').classList.remove('active');
 }
 
@@ -399,7 +430,9 @@ async function renderStaffOrderItems() {
 }
 
 async function submitStaffOrder() {
-  if (!currentStaffOrderTableId) return;
+  const selectedManualTable = document.getElementById('staffManualTableSelect')?.value || '';
+  const tableId = currentOrderMode === 'manual' ? selectedManualTable : currentStaffOrderTableId;
+  if (!tableId) return toast('Selecciona una mesa');
   const items = Array.from(document.querySelectorAll('.staff-order-qty'))
     .map(input => {
       const itemId = input.dataset.itemId;
@@ -416,9 +449,18 @@ async function submitStaffOrder() {
   }
 
   try {
-    const data = await api(`/api/staff/tables/${currentStaffOrderTableId}/order`, {
+    const payload = {
+      items,
+      note: document.getElementById('staffOrderNote').value,
+      source: currentOrderMode === 'manual' ? 'staff_manual' : 'staff_order'
+    };
+    if (currentOrderMode === 'manual') {
+      payload.customerName = document.getElementById('staffManualCustomerName')?.value || '';
+      payload.customerPhone = document.getElementById('staffManualCustomerPhone')?.value || '';
+    }
+    const data = await api(`/api/staff/tables/${tableId}/order`, {
       method: 'POST',
-      body: JSON.stringify({ items, note: document.getElementById('staffOrderNote').value })
+      body: JSON.stringify(payload)
     });
     closeStaffOrderModal();
     toast(`Comanda #${data.order.commandNumber} levantada`);

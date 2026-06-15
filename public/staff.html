@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>AUREA Staff</title>
-  <link rel="stylesheet" href="/style.css?v=0.8.3" />
+  <link rel="stylesheet" href="/style.css?v=0.8.6" />
 </head>
 <body>
   <div id="toast" class="toast"></div>
@@ -35,6 +35,7 @@
       <h1 id="staffRestaurant">AUREA</h1>
       <p class="muted" style="line-height:1.5; margin:0;">Alertas y comandas en tiempo real desde cualquier celular, sin instalar app.</p>
       <div class="inline-actions" style="margin-top:14px;">
+        <button class="btn small" onclick="openManualOrderModal()">+ Comanda manual</button>
         <a class="btn secondary small" href="/kitchen.html" target="_blank">Cocina</a>
         <button class="btn ghost small" onclick="staffLogout()">Salir</button>
       </div>
@@ -94,7 +95,21 @@
         <button class="btn ghost small" onclick="closeStaffOrderModal()">Cerrar</button>
       </div>
 
-      <p class="muted" style="line-height:1.5; margin-top:0;">Modo asistido: úsalo cuando el cliente no quiera pedir desde el QR. La comanda quedará ligada a tu mesa y a tu rendimiento.</p>
+      <p class="muted" style="line-height:1.5; margin-top:0;">Modo asistido: úsalo cuando el cliente no quiera pedir desde el QR. Si la mesa no existe como sesión activa, AUREA la crea automáticamente.</p>
+
+      <div id="manualOrderFields" class="manual-order-fields" style="display:none;">
+        <label>Mesa
+          <select id="staffManualTableSelect"></select>
+        </label>
+        <div class="grid">
+          <label class="col-6">Cliente opcional
+            <input id="staffManualCustomerName" class="input" placeholder="Nombre del cliente" />
+          </label>
+          <label class="col-6">WhatsApp opcional
+            <input id="staffManualCustomerPhone" class="input" inputmode="tel" placeholder="618..." />
+          </label>
+        </div>
+      </div>
 
       <label style="margin-bottom:12px;">Nota general de la comanda
         <textarea id="staffOrderNote" class="input" placeholder="Ej. Todo junto, sin cubiertos, cliente pidió rápido..."></textarea>
@@ -109,6 +124,6 @@
     </div>
   </div>
 
-  <script src="/staff.js?v=0.8.3"></script>
+  <script src="/staff.js?v=0.8.6"></script>
 </body>
 </html>

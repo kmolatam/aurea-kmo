@@ -841,7 +841,7 @@ function computeStaffStats(db) {
 }
 
 app.get('/health', (req, res) => {
-  res.json({ ok: true, product: 'AUREA by KMO', version: '0.8.4-superadmin' });
+  res.json({ ok: true, product: 'AUREA by KMO', version: '0.8.6-superadmin-hidden' });
 });
 
 app.get('/t/:tableId', (req, res) => {
@@ -857,6 +857,10 @@ app.get('/kitchen.html', (req, res) => {
 });
 
 app.get('/superadmin.html', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'superadmin.html'));
+});
+
+app.get('/superadmin', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'superadmin.html'));
 });
 
@@ -1025,33 +1029,42 @@ app.patch('/api/staff/orders/:id', requireStaff, (req, res) => {
 });
 
 
-app.post('/api/staff/tables/:tableId/order', requireStaff, (req, res) => {
-  const db = readDb();
-  const table = db.tables.find(t => t.id === req.params.tableId);
-  if (!table) return res.status(404).json({ ok: false, message: 'Mesa no encontrada' });
 
-  const staff = db.staff.find(member => member.id === req.session.staffId && member.active !== false);
-  if (!staff) return res.status(401).json({ ok: false, message: 'Mesero no autorizado' });
+function createManualOrderForTable(db, table, payload = {}, actor = {}) {
+  const session = createOrUpdateTableSession(db, table, {
+    customerName: payload.customerName || '',
+    customerPhone: payload.customerPhone || '',
+    source: payload.source || 'manual_order',
+    diners: payload.diners
+  });
 
-  const session = createOrUpdateTableSession(db, table, { source: 'staff_order' });
-  if (session.assignedStaffId && session.assignedStaffId !== staff.id) {
-    return res.status(403).json({ ok: false, message: `Esta mesa está asignada a ${session.assignedStaffName || 'otro mesero'}` });
+  const staff = actor.staff || null;
+  if (staff) {
+    if (session.assignedStaffId && session.assignedStaffId !== staff.id && actor.enforceAssignment !== false) {
+      const err = new Error(`Esta mesa está asignada a ${session.assignedStaffName || 'otro mesero'}`);
+      err.status = 403;
+      throw err;
+    }
+    session.assignedStaffId = staff.id;
+    session.assignedStaffName = staff.name;
+    session.takenAt = session.takenAt || nowIso();
+  } else if (actor.adminName && !session.assignedStaffId) {
+    session.assignedStaffId = '';
+    session.assignedStaffName = actor.adminName;
   }
 
-  session.assignedStaffId = staff.id;
-  session.assignedStaffName = staff.name;
-  session.takenAt = session.takenAt || nowIso();
   session.assignmentMode = db.restaurant.assignmentMode || 'free';
   session.updatedAt = nowIso();
   assignToSessionRelatedItems(db, session);
 
-  if (req.body.diners !== undefined) updateSessionDiners(session, req.body.diners);
+  if (payload.diners !== undefined) updateSessionDiners(session, payload.diners);
 
-  const items = Array.isArray(req.body.items) ? req.body.items : [];
+  const items = Array.isArray(payload.items) ? payload.items : [];
   const cleanItems = normalizeOrderLines(db, items);
-
   if (cleanItems.length === 0) {
-    return res.status(400).json({ ok: false, message: 'La comanda asistida está vacía' });
+    const err = new Error('La comanda manual está vacía');
+    err.status = 400;
+    throw err;
   }
 
   if (session.customerPhone) {
@@ -1059,15 +1072,15 @@ app.post('/api/staff/tables/:tableId/order', requireStaff, (req, res) => {
       tableId: table.id,
       phone: session.customerPhone,
       name: session.customerName,
-      source: 'staff_order',
+      source: payload.source || 'manual_order',
       optInPromos: true,
       countOrder: true,
-      assignedStaffId: staff.id,
-      assignedStaffName: staff.name
+      assignedStaffId: session.assignedStaffId,
+      assignedStaffName: session.assignedStaffName
     });
   }
 
-  const total = cleanItems.reduce((sum, item) => sum + item.subtotal, 0);
+  const total = roundMoney(cleanItems.reduce((sum, item) => sum + item.subtotal, 0));
   db.counters = db.counters || {};
   db.counters.command = Number(db.counters.command || 0) + 1;
   const order = {
@@ -1077,15 +1090,15 @@ app.post('/api/staff/tables/:tableId/order', requireStaff, (req, res) => {
     tableName: table.name,
     customerName: session.customerName || '',
     customerPhone: session.customerPhone || '',
-    note: cleanString(req.body.note || 'Pedido tomado por mesero', 280),
+    note: cleanString(payload.note || 'Comanda manual', 280),
     items: cleanItems,
     total,
     status: 'new',
     estimatedTime: '',
     sessionId: session.id,
-    assignedStaffId: staff.id,
-    assignedStaffName: staff.name,
-    source: 'staff',
+    assignedStaffId: session.assignedStaffId || '',
+    assignedStaffName: session.assignedStaffName || actor.adminName || '',
+    source: payload.source || 'manual',
     confirmedAt: '',
     createdAt: nowIso(),
     updatedAt: nowIso()
@@ -1099,18 +1112,64 @@ app.post('/api/staff/tables/:tableId/order', requireStaff, (req, res) => {
     type: 'order',
     customerName: order.customerName,
     customerPhone: order.customerPhone,
-    note: `Comanda asistida #${order.commandNumber} · ${cleanItems.length} producto(s) · $${total}`,
+    note: `Comanda manual #${order.commandNumber} · ${cleanItems.length} producto(s) · $${total}`,
     status: 'new',
     sessionId: session.id,
-    assignedStaffId: staff.id,
-    assignedStaffName: staff.name,
+    assignedStaffId: order.assignedStaffId,
+    assignedStaffName: order.assignedStaffName,
     createdAt: nowIso(),
     updatedAt: nowIso(),
     orderId: order.id
   });
 
-  writeDb(db);
-  res.json({ ok: true, order: publicOrder(order), message: 'Comanda levantada por mesero.' });
+  return { order, session };
+}
+
+
+app.post('/api/staff/tables/:tableId/order', requireStaff, (req, res) => {
+  const db = readDb();
+  const table = db.tables.find(t => t.id === req.params.tableId);
+  if (!table) return res.status(404).json({ ok: false, message: 'Mesa no encontrada' });
+
+  const staff = db.staff.find(member => member.id === req.session.staffId && member.active !== false);
+  if (!staff) return res.status(401).json({ ok: false, message: 'Mesero no autorizado' });
+
+  try {
+    const { order } = createManualOrderForTable(db, table, {
+      ...req.body,
+      source: req.body.source || 'staff_order'
+    }, { staff });
+    writeDb(db);
+    res.json({ ok: true, order: publicOrder(order), message: 'Comanda levantada por mesero.' });
+  } catch (error) {
+    res.status(error.status || 500).json({ ok: false, message: error.message || 'No se pudo levantar la comanda' });
+  }
+});
+
+app.post('/api/admin/manual-order', requireLogin, (req, res) => {
+  const db = readDb();
+  const table = db.tables.find(t => t.id === req.body.tableId);
+  if (!table) return res.status(404).json({ ok: false, message: 'Selecciona una mesa válida' });
+
+  let staff = null;
+  if (req.body.staffId) {
+    staff = db.staff.find(member => member.id === req.body.staffId && member.active !== false) || null;
+  }
+
+  try {
+    const { order } = createManualOrderForTable(db, table, {
+      ...req.body,
+      source: 'admin_manual'
+    }, {
+      staff,
+      adminName: staff ? staff.name : (req.session.adminUser || 'Admin'),
+      enforceAssignment: false
+    });
+    writeDb(db);
+    res.json({ ok: true, order: publicOrder(order), message: 'Comanda manual creada.' });
+  } catch (error) {
+    res.status(error.status || 500).json({ ok: false, message: error.message || 'No se pudo crear la comanda manual' });
+  }
 });
 
 app.get('/api/public/restaurant', (req, res) => {

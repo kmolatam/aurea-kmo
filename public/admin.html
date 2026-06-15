@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>AUREA Admin · La Lomita</title>
-  <link rel="stylesheet" href="/style.css?v=0.8.3" />
+  <link rel="stylesheet" href="/style.css?v=0.8.6" />
 </head>
 <body>
   <div id="toast" class="toast"></div>
@@ -52,7 +52,6 @@
       </nav>
       <a class="btn ghost" style="margin-top:18px; width:100%; text-align:center; display:block;" href="/staff.html" target="_blank">Panel meseros</a>
       <a class="btn ghost" style="margin-top:10px; width:100%; text-align:center; display:block;" href="/kitchen.html" target="_blank">Pantalla cocina</a>
-      <a id="superAdminLink" class="btn ghost" style="margin-top:10px; width:100%; text-align:center; display:none;" href="/superadmin.html" target="_blank">Portal super admin</a>
       <button class="btn ghost" style="margin-top:10px; width:100%;" onclick="logout()">Salir</button>
     </aside>
 
@@ -81,7 +80,10 @@
             <h2 style="margin-bottom:4px;">Comandas</h2>
             <p class="muted" style="margin-top:0;">Pedido enviado → mesero confirma → cocina prepara → se entrega.</p>
           </div>
-          <a class="btn secondary" href="/kitchen.html" target="_blank">Abrir cocina</a>
+          <div class="inline-actions end">
+            <button class="btn" onclick="openAdminManualOrderModal()">+ Comanda manual</button>
+            <a class="btn secondary" href="/kitchen.html" target="_blank">Abrir cocina</a>
+          </div>
         </div>
         <div class="command-board">
           <div class="card command-column">
@@ -442,6 +444,45 @@
     </main>
   </section>
 
-  <script src="/admin.js?v=0.8.3"></script>
+
+  <div id="adminManualOrderModal" class="modal-backdrop">
+    <div class="modal">
+      <div class="section-head">
+        <div>
+          <h2 style="margin:0;">Comanda manual</h2>
+          <p class="muted" style="margin:6px 0 0;">Crea una comanda desde cero. Si la mesa no tiene sesión activa, AUREA la abre automáticamente.</p>
+        </div>
+        <button class="btn ghost small" onclick="closeAdminManualOrderModal()">Cerrar</button>
+      </div>
+
+      <div class="grid" style="margin-bottom:12px;">
+        <label class="col-6">Mesa
+          <select id="adminManualTableSelect"></select>
+        </label>
+        <label class="col-6">Mesero responsable opcional
+          <select id="adminManualStaffSelect"></select>
+        </label>
+        <label class="col-6">Cliente opcional
+          <input id="adminManualCustomerName" class="input" placeholder="Nombre del cliente" />
+        </label>
+        <label class="col-6">WhatsApp opcional
+          <input id="adminManualCustomerPhone" class="input" inputmode="tel" placeholder="618..." />
+        </label>
+        <label class="col-12">Nota general
+          <textarea id="adminManualNote" class="input" placeholder="Ej. Cliente pidió rápido, todo junto..."></textarea>
+        </label>
+      </div>
+
+      <div id="adminManualItems" class="list"></div>
+
+      <div class="inline-actions end" style="margin-top:16px; position:sticky; bottom:0; background:var(--panel); padding-top:12px;">
+        <button class="btn ghost" onclick="closeAdminManualOrderModal()">Cancelar</button>
+        <button class="btn success" onclick="submitAdminManualOrder()">Enviar a cocina</button>
+      </div>
+    </div>
+  </div>
+
+
+  <script src="/admin.js?v=0.8.6"></script>
 </body>
 </html>
