@@ -391,8 +391,7 @@ function setKitchenAreaLabels(labels) {
     seen.add(key);
     cleaned.push(clean);
   }
-  const text = cleaned.slice(0, 30).join('
-');
+  const text = cleaned.slice(0, 30).join('\n');
   const kitchenText = document.getElementById('kitchenStationsText');
   if (kitchenText) kitchenText.value = text;
   if (db?.restaurant) {
@@ -461,8 +460,7 @@ function restaurantPayloadWithKitchenStations(text) {
 
 async function saveQuickKitchenAreas() {
   try {
-    const text = document.getElementById('kitchenStationsText')?.value || quickKitchenAreaLabels().join('
-');
+    const text = document.getElementById('kitchenStationsText')?.value || quickKitchenAreaLabels().join('\n');
     await api('/api/admin/restaurant', {
       method: 'PUT',
       body: JSON.stringify(restaurantPayloadWithKitchenStations(text))

@@ -1,0 +1,3 @@
+Áurea v0.9.10
+Fix urgente: corrige SyntaxError en public/admin.js por salto de línea roto en join(\n).
+El login ya funcionaba; el panel no abría porque admin.js se rompía al cargar.
