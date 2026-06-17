@@ -9,6 +9,43 @@ const PORT = process.env.PORT || 3000;
 const DB_PATH = path.resolve(process.env.AUREA_DB_PATH || path.join(__dirname, 'data', 'db.json'));
 fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
 
+const KITCHEN_STATIONS = ['hot', 'cold', 'drinks'];
+const KITCHEN_STATION_LABELS = {
+  hot: 'Barra caliente',
+  cold: 'Barra fría',
+  drinks: 'Bebidas'
+};
+
+function normalizeKitchenStation(value) {
+  const raw = cleanString(value || 'hot', 40).toLowerCase();
+  if (['caliente', 'barra_caliente', 'barra caliente', 'hot', 'kitchen', 'cocina'].includes(raw)) return 'hot';
+  if (['fria', 'fría', 'barra_fria', 'barra fría', 'barra fria', 'cold'].includes(raw)) return 'cold';
+  if (['bebida', 'bebidas', 'bar', 'drinks', 'barra_bebidas'].includes(raw)) return 'drinks';
+  return KITCHEN_STATIONS.includes(raw) ? raw : 'hot';
+}
+
+function kitchenStationLabel(value) {
+  return KITCHEN_STATION_LABELS[normalizeKitchenStation(value)] || KITCHEN_STATION_LABELS.hot;
+}
+
+function normalizeMenuModifiers(value) {
+  const raw = Array.isArray(value) ? value : String(value || '').split(/[\n,|]+/);
+  const seen = new Set();
+  return raw
+    .map(item => cleanString(typeof item === 'string' ? item : (item?.name || item?.label || ''), 60))
+    .filter(item => {
+      const key = item.toLowerCase();
+      if (!item || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, 12);
+}
+
+function cleanModifierName(value) {
+  return cleanString(value || '', 80);
+}
+
 const ADMIN_USER = process.env.AUREA_USER || 'lalomita';
 const ADMIN_PASS = process.env.AUREA_PASS || '1564';
 const SUPER_ADMIN_USER = process.env.AUREA_SUPER_USER || 'superadmin';
@@ -75,6 +112,9 @@ function ensureDbShape(db) {
       description: product.description || '',
       price: Number(product.price || 0),
       imageUrl: product.imageUrl || product.image || '',
+      kitchenStation: normalizeKitchenStation(product.kitchenStation || product.station || product.kitchenArea || 'hot'),
+      modifierGroupName: cleanString(product.modifierGroupName || product.optionGroupName || 'Opción', 60) || 'Opción',
+      modifiers: normalizeMenuModifiers(product.modifiers || product.options || product.variants || ''),
       available: product.available !== false && product.active !== false && product.isAvailable !== false,
       featured: Boolean(product.featured)
     }));
@@ -82,6 +122,10 @@ function ensureDbShape(db) {
   db.menuItems = db.menuItems.map(item => ({
     ...item,
     price: Number(item.price || 0),
+    kitchenStation: normalizeKitchenStation(item.kitchenStation || item.station || item.kitchenArea || 'hot'),
+    kitchenStationLabel: kitchenStationLabel(item.kitchenStation || item.station || item.kitchenArea || 'hot'),
+    modifierGroupName: cleanString(item.modifierGroupName || item.optionGroupName || 'Opción', 60) || 'Opción',
+    modifiers: normalizeMenuModifiers(item.modifiers || item.options || item.variants || ''),
     available: item.available !== false && item.active !== false && item.isAvailable !== false,
     featured: Boolean(item.featured)
   }));
@@ -342,10 +386,15 @@ function publicOrder(order) {
   return {
     id: order.id,
     commandNumber: order.commandNumber,
+    tableId: order.tableId || '',
     tableName: order.tableName,
     status: order.status,
     estimatedTime: order.estimatedTime || '',
     total: order.total,
+    note: order.note || '',
+    customerName: order.customerName || '',
+    customerPhone: order.customerPhone || '',
+    source: order.source || '',
     items: order.items,
     createdAt: order.createdAt,
     updatedAt: order.updatedAt,
@@ -421,6 +470,10 @@ function buildBillSummary(db, tableId) {
         qty: Number(item.qty || 0),
         price: Number(item.price || 0),
         note: item.note || '',
+        modifierName: cleanModifierName(item.modifierName || item.optionName || ''),
+        modifierGroupName: cleanString(item.modifierGroupName || 'Opción', 60) || 'Opción',
+        kitchenStation: normalizeKitchenStation(item.kitchenStation || 'hot'),
+        kitchenStationLabel: kitchenStationLabel(item.kitchenStation || 'hot'),
         dinerName: cleanDinerName(item.dinerName || item.personName || ''),
         subtotal: roundMoney(item.subtotal !== undefined ? item.subtotal : Number(item.price || 0) * Number(item.qty || 0))
       });
@@ -694,6 +747,17 @@ function normalizeOrderLines(db, rawItems) {
 
     const note = cleanString(line.note, 140);
     const price = Number(item.price || 0);
+    const modifierName = cleanModifierName(line.modifierName || line.modifier || line.optionName || '');
+    const common = {
+      itemId: item.id,
+      name: item.name,
+      price,
+      note,
+      modifierName,
+      modifierGroupName: cleanString(item.modifierGroupName || 'Opción', 60) || 'Opción',
+      kitchenStation: normalizeKitchenStation(item.kitchenStation || 'hot'),
+      kitchenStationLabel: kitchenStationLabel(item.kitchenStation || 'hot')
+    };
     const allocations = parseDinerBreakdown(line.splitAssignments || line.dinerBreakdown || line.allocations || []);
 
     let remaining = qty;
@@ -703,11 +767,8 @@ function normalizeOrderLines(db, rawItems) {
       const dinerName = cleanDinerName(alloc.dinerName || alloc.name || alloc.personName || '');
       if (partQty <= 0 || !dinerName) continue;
       cleanItems.push({
-        itemId: item.id,
-        name: item.name,
-        price,
+        ...common,
         qty: partQty,
-        note,
         dinerName,
         subtotal: roundMoney(price * partQty)
       });
@@ -716,11 +777,8 @@ function normalizeOrderLines(db, rawItems) {
 
     if (remaining > 0) {
       cleanItems.push({
-        itemId: item.id,
-        name: item.name,
-        price,
+        ...common,
         qty: remaining,
-        note,
         dinerName: cleanDinerName(line.dinerName || line.personName || ''),
         subtotal: roundMoney(price * remaining)
       });
@@ -1965,6 +2023,10 @@ app.post('/api/admin/menu-items', requireLogin, (req, res) => {
     description: cleanString(req.body.description, 240),
     price: Number(req.body.price || 0),
     imageUrl: cleanString(req.body.imageUrl, 500),
+    kitchenStation: normalizeKitchenStation(req.body.kitchenStation || 'hot'),
+    kitchenStationLabel: kitchenStationLabel(req.body.kitchenStation || 'hot'),
+    modifierGroupName: cleanString(req.body.modifierGroupName || 'Opción', 60) || 'Opción',
+    modifiers: normalizeMenuModifiers(req.body.modifiers),
     available: req.body.available !== false && req.body.available !== 'false',
     featured: Boolean(req.body.featured)
   };
@@ -1989,6 +2051,10 @@ app.put('/api/admin/menu-items/:id', requireLogin, (req, res) => {
     description: req.body.description !== undefined ? cleanString(req.body.description, 240) : current.description,
     price: req.body.price !== undefined ? Number(req.body.price || 0) : current.price,
     imageUrl: req.body.imageUrl !== undefined ? cleanString(req.body.imageUrl, 500) : current.imageUrl,
+    kitchenStation: req.body.kitchenStation !== undefined ? normalizeKitchenStation(req.body.kitchenStation) : normalizeKitchenStation(current.kitchenStation || 'hot'),
+    kitchenStationLabel: req.body.kitchenStation !== undefined ? kitchenStationLabel(req.body.kitchenStation) : kitchenStationLabel(current.kitchenStation || 'hot'),
+    modifierGroupName: req.body.modifierGroupName !== undefined ? (cleanString(req.body.modifierGroupName || 'Opción', 60) || 'Opción') : (current.modifierGroupName || 'Opción'),
+    modifiers: req.body.modifiers !== undefined ? normalizeMenuModifiers(req.body.modifiers) : normalizeMenuModifiers(current.modifiers || ''),
     available: req.body.available !== undefined ? Boolean(req.body.available) : current.available,
     featured: req.body.featured !== undefined ? Boolean(req.body.featured) : current.featured
   };
@@ -2369,6 +2435,6 @@ app.patch('/api/admin/orders/:id', requireLogin, (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`AUREA by KMO v0.8.2-lalomita corriendo en http://localhost:${PORT}`);
+  console.log(`AUREA by KMO v0.8.9-lalomita corriendo en http://localhost:${PORT}`);
   console.log(`Admin demo: usuario ${ADMIN_USER} / contraseña ${ADMIN_PASS}`);
 });

@@ -77,3 +77,17 @@ Regla operativa:
 - Mesero captura pedido y puede generar cuenta.
 - Mesero captura pago, pero queda pendiente.
 - Admin/capitán autoriza pago en Corte diario.
+
+
+## Hotfix operativo v0.8.9
+
+Agrega:
+- Corrección del duplicado en Nuevo pedido del portal meseros: cada comanda nueva inicia con borrador limpio sin borrar lo anterior de la cuenta.
+- Área de preparación por producto: Barra caliente, Barra fría o Bebidas.
+- Pantalla de cocina separada por barras para que cada equipo vea solo sus productos.
+- Subdivisión de selección única por platillo, por ejemplo Salsa verde / Salsa roja / Salsa negra.
+- Cancelación de comanda desde portal meseros.
+- Impresión térmica básica desde navegador para comandas y cuenta de mesa.
+
+Nota impresión:
+- Funciona como impresión web/print service del navegador. Si el equipo Android POS expone la impresora al navegador o al servicio de impresión, puede imprimir directo. Si la impresora integrada está cerrada por SDK privado, se requerirá adaptador específico del fabricante.

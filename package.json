@@ -1,7 +1,7 @@
 {
   "name": "aurea-by-kmo-mvp",
-  "version": "0.8.8-staff-ux",
-  "description": "AUREA by KMO - pedidos por categorías, cuenta por mesa, tours, ayuda y novedades",
+  "version": "0.8.9-lalomita-hotfix",
+  "description": "AUREA by KMO - hotfix comanda sin duplicado, barras de cocina, modificadores, cancelación e impresión térmica básica",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
