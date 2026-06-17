@@ -7,7 +7,7 @@ let currentStaffOrderDraft = [];
 let currentStaffCategoryId = '';
 let currentStaffEditingItemId = '';
 let guidedTourState = null;
-const STAFF_JS_VERSION = '0.9.11-pos-ready';
+const STAFF_JS_VERSION = '0.9.13-ticket-logo-ux';
 let notificationsBaselineReady = false;
 const seenAlertIds = new Set();
 const seenOrderIds = new Set();
@@ -135,40 +135,56 @@ function ticketWidthMm() {
   return value === 80 ? 80 : 58;
 }
 
-
-function printBrandOptions() {
+function printBrandOptions(includeLogo = false) {
   const restaurant = staffDb?.restaurant || {};
   return {
     restaurantName: restaurant.name || 'AUREA',
     logoText: restaurant.logoText || restaurant.name || 'AUREA',
-    logoDataUrl: restaurant.logoDataUrl || '',
-    feedDots: 300
+    logoDataUrl: includeLogo ? (restaurant.logoDataUrl || '') : '',
+    feedDots: includeLogo ? 320 : 300
   };
-}
-
-function ticketLogoHtml() {
-  const restaurant = staffDb?.restaurant || {};
-  if (restaurant.logoDataUrl) return `<img class="ticket-logo" src="${restaurant.logoDataUrl}" alt="Logo" />`;
-  return `<div class="brand">${escapeHtml(restaurant.name || 'AUREA')}</div>`;
 }
 
 function ticketBodyWidthMm(width = ticketWidthMm()) {
   return width === 58 ? 48 : 72;
 }
 
-function ticketPrintStyles(width = ticketWidthMm()) {
+function currentRestaurantLogoDataUrl() {
+  return String(staffDb?.restaurant?.logoDataUrl || '').trim();
+}
+
+function currentRestaurantLogoText() {
+  return String(staffDb?.restaurant?.logoText || staffDb?.restaurant?.name || 'AUREA').trim();
+}
+
+function ticketHtmlToBridgeText(bodyHtml) {
+  const div = document.createElement('div');
+  div.innerHTML = String(bodyHtml || '');
+  div.querySelectorAll('script,style,.print-actions,button').forEach(node => node.remove());
+  div.querySelectorAll('.line').forEach(node => {
+    node.replaceWith(document.createTextNode('\n--------------------------------\n'));
+  });
+  div.querySelectorAll('br').forEach(node => node.replaceWith(document.createTextNode('\n')));
+  return window.AureaPrintBridge?.cleanText
+    ? window.AureaPrintBridge.cleanText(div.innerText || div.textContent || '')
+    : (div.innerText || div.textContent || '').trim();
+}
+
+function ticketPrintStyles(width = ticketWidthMm(), options = {}) {
   const bodyWidth = ticketBodyWidthMm(width);
   const brandSize = width === 58 ? 17 : 20;
   const baseSize = width === 58 ? 11 : 12;
   const strongSize = width === 58 ? 13 : 15;
+  const bottomGapMm = Math.max(8, Number(options.bottomGapMm || 22));
   return `
     @page{size:${width}mm auto;margin:0}
     *{box-sizing:border-box}
     html,body{margin:0;padding:0;background:#fff;color:#111}
     body{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Courier New",monospace;width:${bodyWidth}mm;margin:0 auto;font-size:${baseSize}px;line-height:1.28;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-    .ticket{padding:3mm 1mm 30mm}
-    .center{text-align:center}.ticket-logo{display:block;max-width:34mm;max-height:16mm;object-fit:contain;margin:0 auto 2mm}.brand{font-size:${brandSize}px;font-weight:900;letter-spacing:.06em}.muted{color:#555}.line{border-top:1px dashed #222;margin:7px 0}.row{display:flex;justify-content:space-between;gap:6px;align-items:flex-start}.row span:last-child,.row strong:last-child{text-align:right}.item{margin:6px 0;break-inside:avoid}.item strong{font-size:${strongSize}px}.item small{display:block;color:#555;margin-top:2px}.total{font-size:${width === 58 ? 14 : 16}px;font-weight:900}.footer{margin-top:8px;text-align:center;font-size:10px;color:#555}.print-actions{display:grid;gap:8px;margin-top:12px}.print-actions button{width:100%;padding:10px;border:0;border-radius:10px;background:#111;color:#fff;font-weight:800}
-    @media print{.print-actions{display:none!important}body{width:${bodyWidth}mm}.ticket{padding:2mm 0 30mm}}
+    .ticket{padding:3mm 1mm ${bottomGapMm}mm}
+    .center{text-align:center}.brand{font-size:${brandSize}px;font-weight:900;letter-spacing:.06em}.muted{color:#555}.line{border-top:1px dashed #222;margin:7px 0}.row{display:flex;justify-content:space-between;gap:6px;align-items:flex-start}.row span:last-child,.row strong:last-child{text-align:right}.item{margin:6px 0;break-inside:avoid}.item strong{font-size:${strongSize}px}.item small{display:block;color:#555;margin-top:2px}.total{font-size:${width === 58 ? 14 : 16}px;font-weight:900}.footer{margin-top:8px;text-align:center;font-size:10px;color:#555}.print-actions{display:grid;gap:8px;margin-top:12px}.print-actions button{width:100%;padding:10px;border:0;border-radius:10px;background:#111;color:#fff;font-weight:800}
+    .logo-wrap{display:grid;place-items:center;margin-bottom:6px}.logo-wrap img{max-width:${width === 58 ? 30 : 42}mm;max-height:${width === 58 ? 16 : 22}mm;object-fit:contain;display:block}
+    @media print{.print-actions{display:none!important}body{width:${bodyWidth}mm}.ticket{padding:2mm 0 ${bottomGapMm}mm}}
   `;
 }
 
@@ -176,10 +192,29 @@ function printHtmlDocument(title, bodyHtml, options = {}) {
   const restaurant = staffDb?.restaurant?.name || 'AUREA';
   const width = ticketWidthMm();
   const footer = options.footer || 'Gracias por su preferencia';
+  const showLogo = Boolean(options.showLogo && currentRestaurantLogoDataUrl());
+  const logoHtml = showLogo ? `<div class="logo-wrap"><img src="${currentRestaurantLogoDataUrl()}" alt="Logo del restaurante" /></div>` : '';
+  const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escapeHtml(title)}</title><style>${ticketPrintStyles(width, options)}</style></head><body><div class="ticket">${logoHtml}<div class="center"><div class="brand">${escapeHtml(restaurant)}</div><div class="muted">AUREA by KMO</div></div><div class="line"></div>${bodyHtml}<div class="line"></div><div class="footer">${escapeHtml(footer)}</div><div class="print-actions"><button onclick="window.print()">Imprimir</button><button onclick="window.close()">Cerrar</button></div></div><script>window.addEventListener('load',()=>setTimeout(()=>{window.focus();window.print()},450));<\/script></body></html>`;
+
+  if (window.AureaPrintBridge?.shouldUseBridge()) {
+    const bridgePayload = {
+      text: options.bridgeText || ticketHtmlToBridgeText(bodyHtml),
+      logoDataUrl: showLogo ? currentRestaurantLogoDataUrl() : '',
+      logoText: currentRestaurantLogoText(),
+      ticketWidthMm: width,
+      feedDots: Number(options.feedDots || 300),
+      footer,
+      returnUrl: location.href
+    };
+    window.AureaPrintBridge.printPayload(bridgePayload, bridgePayload);
+    return true;
+  }
+
   const w = window.open('', '_blank', 'width=380,height=720');
   if (!w) return toast('El navegador bloqueó la ventana de impresión. Permite ventanas emergentes.');
-  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escapeHtml(title)}</title><style>${ticketPrintStyles(width)}</style></head><body><div class="ticket"><div class="center">${ticketLogoHtml()}<div class="muted">AUREA by KMO</div></div><div class="line"></div>${bodyHtml}<div class="line"></div><div class="footer">${escapeHtml(footer)}</div><div class="print-actions"><button onclick="window.print()">Imprimir</button><button onclick="window.close()">Cerrar</button></div></div><script>window.addEventListener('load',()=>setTimeout(()=>{window.focus();window.print()},450));<\/script></body></html>`);
+  w.document.write(html);
   w.document.close();
+  return true;
 }
 
 function printStaffOrderDataBridge(order) {
@@ -193,22 +228,36 @@ function printStaffOrderDataBridge(order) {
     showTotal: false,
     footer: 'Ticket de cocina'
   });
-  return bridge.printTextIfBridge(ticketText, printBrandOptions());
+  return bridge.printTextIfBridge(ticketText, printBrandOptions(false));
 }
 
 function printStaffOrderTicket(orderId) {
   const order = (staffDb.orders || []).find(item => item.id === orderId);
   if (!order) return toast('Comanda no encontrada');
-  if (printStaffOrderDataBridge(order)) return;
   const items = (order.items || []).map(item => `
     <div class="item"><div class="row"><strong>${escapeHtml(item.qty)}× ${escapeHtml(item.name)}</strong><span>${money(item.subtotal)}</span></div>${item.modifierName ? `<small>${escapeHtml(item.modifierGroupName || 'Opción')}: ${escapeHtml(item.modifierName)}</small>` : ''}${item.note ? `<small>Nota: ${escapeHtml(item.note)}</small>` : ''}${item.dinerName ? `<small>Cuenta: ${escapeHtml(item.dinerName)}</small>` : ''}</div>
   `).join('');
-  printHtmlDocument(`Comanda #${order.commandNumber || ''}`, `
+  const bodyHtml = `
     <div class="center"><strong>COMANDA #${escapeHtml(order.commandNumber || '-')}</strong><br><span>${escapeHtml(order.tableName || 'Mesa')}</span><br><span class="muted">${dateTime(order.createdAt)}</span></div>
     <div class="line"></div>${items}
     ${order.note ? `<div class="line"></div><div><strong>Nota:</strong> ${escapeHtml(order.note)}</div>` : ''}
     <div class="line"></div><div class="row total"><span>Total</span><span>${money(order.total)}</span></div>
-  `);
+  `;
+  const bridgeText = window.AureaPrintBridge?.buildOrderTicketText
+    ? window.AureaPrintBridge.buildOrderTicketText(order, {
+        restaurantName: staffDb?.restaurant?.name || 'AUREA',
+        ticketWidthMm: ticketWidthMm(),
+        showPrices: true,
+        footer: 'Ticket de producción'
+      })
+    : '';
+  printHtmlDocument(`Comanda #${order.commandNumber || ''}`, bodyHtml, {
+    footer: 'Ticket de producción',
+    showLogo: false,
+    bridgeText,
+    feedDots: 300,
+    bottomGapMm: 24
+  });
 }
 
 function printStaffBillTicket() {
@@ -217,29 +266,31 @@ function printStaffBillTicket() {
   const table = (staffDb.tables || []).find(item => item.id === currentPaymentTableId);
   const lines = billLinesForTable(currentPaymentTableId);
   const total = lines.reduce((sum, line) => sum + Number(line.subtotal || 0), 0);
-  const bridge = window.AureaPrintBridge;
-  if (bridge?.shouldUseBridge?.()) {
-    const ticketText = bridge.buildBillTicketText({
-      tableName: session?.tableName || table?.name || 'Mesa',
-      items: lines,
-      total,
-      note: 'Cuenta estimada. Admin/capitan confirma el cierre final.'
-    }, {
-      restaurantName: staffDb?.restaurant?.name || 'AUREA',
-      ticketWidthMm: ticketWidthMm(),
-      footer: 'Gracias por su preferencia'
-    });
-    if (bridge.printTextIfBridge(ticketText, printBrandOptions())) return;
-  }
+  const tableName = session?.tableName || table?.name || 'Mesa';
+  const note = 'Cuenta estimada. Admin/capitán confirma el cierre final.';
   const items = lines.map(line => `
     <div class="item"><div class="row"><span>${escapeHtml(line.qty)}× ${escapeHtml(line.name)}</span><strong>${money(line.subtotal)}</strong></div>${line.modifierName ? `<small>${escapeHtml(line.modifierGroupName || 'Opción')}: ${escapeHtml(line.modifierName)}</small>` : ''}${line.note ? `<small>Nota: ${escapeHtml(line.note)}</small>` : ''}${line.dinerName ? `<small>Cuenta: ${escapeHtml(line.dinerName)}</small>` : ''}</div>
   `).join('');
-  printHtmlDocument(`Ticket ${session?.tableName || table?.name || 'Mesa'}`, `
-    <div class="center"><strong>TICKET DE CUENTA</strong><br><span>${escapeHtml(session?.tableName || table?.name || 'Mesa')}</span><br><span class="muted">${dateTime(new Date())}</span></div>
+  const bodyHtml = `
+    <div class="center"><strong>TICKET DE CUENTA</strong><br><span>${escapeHtml(tableName)}</span><br><span class="muted">${dateTime(new Date())}</span></div>
     <div class="line"></div>${items || '<div class="center muted">Sin productos</div>'}
     <div class="line"></div><div class="row total"><span>Total</span><span>${money(total)}</span></div>
-    <div class="muted" style="margin-top:6px">Cuenta estimada. Admin/capitán confirma el cierre final.</div>
-  `);
+    <div class="muted" style="margin-top:6px">${note}</div>
+  `;
+  const bridgeText = window.AureaPrintBridge?.buildBillTicketText
+    ? window.AureaPrintBridge.buildBillTicketText({ tableName, items: lines, total, note }, {
+        restaurantName: staffDb?.restaurant?.name || 'AUREA',
+        ticketWidthMm: ticketWidthMm(),
+        footer: 'Gracias por su preferencia'
+      })
+    : '';
+  printHtmlDocument(`Ticket ${tableName}`, bodyHtml, {
+    footer: 'Gracias por su preferencia',
+    showLogo: true,
+    bridgeText,
+    feedDots: 320,
+    bottomGapMm: 30
+  });
 }
 
 async function checkStaffSession() {
@@ -744,6 +795,9 @@ function selectStaffCategory(categoryId) {
 function openStaffItemEditor(itemId) {
   currentStaffEditingItemId = itemId;
   renderStaffOrderItems();
+  setTimeout(() => {
+    document.querySelector('.quick-item-editor')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, 30);
 }
 
 function adjustStaffQuickQty(delta) {
@@ -1065,7 +1119,7 @@ checkStaffSession();
 
 
 const AUREA_SUPPORT_WHATSAPP = '526601552214';
-const AUREA_RELEASE_VERSION = '0.9.4';
+const AUREA_RELEASE_VERSION = '0.9.13';
 
 function supportWhatsAppUrl(panel) {
   const restaurant = (typeof staffDb !== 'undefined' && staffDb?.restaurant?.name) || (typeof db !== 'undefined' && db?.restaurant?.name) || (typeof kitchenDb !== 'undefined' && kitchenDb?.restaurant?.name) || 'AUREA';

@@ -1514,3 +1514,9 @@ select option { color: #111; }
   .kitchen-area-add { display: grid; grid-template-columns: 1fr; }
   .kitchen-area-add .btn { width: 100%; }
 }
+
+
+/* AUREA v0.9.13 · ajustes UX meseros */
+.quick-item-editor{scroll-margin-top:14px;position:relative}
+.menu-pick-grid{scroll-margin-bottom:120px}
+.modal .inline-actions[style*="sticky"]{position:sticky;bottom:0;z-index:6;border-top:1px solid var(--line);box-shadow:0 -8px 24px rgba(0,0,0,.18)}
