@@ -7,25 +7,10 @@ let currentStaffOrderDraft = [];
 let currentStaffCategoryId = '';
 let currentStaffEditingItemId = '';
 let guidedTourState = null;
-const STAFF_JS_VERSION = '0.9.4';
+const STAFF_JS_VERSION = '0.9.1';
 let notificationsBaselineReady = false;
 const seenAlertIds = new Set();
 const seenOrderIds = new Set();
-const STAFF_AUTO_BILL_PRINT_KEY = 'aurea-staff-auto-bill-print-v1';
-
-function staffAutoPrintedBills() {
-  try { return new Set(JSON.parse(localStorage.getItem(STAFF_AUTO_BILL_PRINT_KEY) || '[]')); }
-  catch { return new Set(); }
-}
-
-function saveStaffAutoPrintedBills(set) {
-  localStorage.setItem(STAFF_AUTO_BILL_PRINT_KEY, JSON.stringify(Array.from(set).slice(-250)));
-}
-
-function staffBillPrintKey(tableId) {
-  const session = (staffDb?.tableSessions || []).find(item => item.tableId === tableId && item.status === 'active');
-  return `${tableId}:${session?.id || 'active'}`;
-}
 
 function money(value) {
   return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(value || 0);
@@ -96,20 +81,12 @@ function statusLabel(status) {
   return labels[status] || status;
 }
 
-function kitchenStations() {
-  const configured = staffDb?.restaurant?.kitchenStations;
-  if (Array.isArray(configured) && configured.length) return configured;
-  return [
-    { id: 'hot', label: 'Barra caliente', icon: '🔥' },
-    { id: 'cold', label: 'Barra fría', icon: '🥗' },
-    { id: 'drinks', label: 'Bebidas', icon: '🥤' }
-  ];
-}
-
 function kitchenStationName(value) {
-  const raw = String(value || 'hot');
-  const station = kitchenStations().find(item => item.id === raw) || kitchenStations()[0] || { id: 'hot', label: 'Barra caliente', icon: '🔥' };
-  return `${station.icon ? `${station.icon} ` : ''}${station.label || station.id}`;
+  const configured = Array.isArray(staffDb?.restaurant?.kitchenStations) ? staffDb.restaurant.kitchenStations : [];
+  const found = configured.find(item => item.id === (value || 'hot'));
+  if (found) return `${found.icon ? `${found.icon} ` : ''}${found.label || found.id}`;
+  const labels = { hot: '🔥 Barra caliente', cold: '🥗 Barra fría', drinks: '🥤 Bebidas' };
+  return labels[value || 'hot'] || labels.hot;
 }
 
 function lineModifierText(item) {
@@ -130,26 +107,21 @@ function setChoiceActive(input) {
   });
 }
 
+function ticketRestaurant() {
+  return staffDb?.restaurant || {};
+}
+
+function ticketBrandName() {
+  return ticketRestaurant().name || 'AUREA';
+}
+
+function ticketLogoDataUrl() {
+  return ticketRestaurant().logoDataUrl || '';
+}
+
 function ticketWidthMm() {
   const value = Number(staffDb?.restaurant?.printSettings?.ticketWidthMm || 58);
   return value === 80 ? 80 : 58;
-}
-
-
-function printBrandOptions() {
-  const restaurant = staffDb?.restaurant || {};
-  return {
-    restaurantName: restaurant.name || 'AUREA',
-    logoText: restaurant.logoText || restaurant.name || 'AUREA',
-    logoDataUrl: restaurant.logoDataUrl || '',
-    feedDots: 175
-  };
-}
-
-function ticketLogoHtml() {
-  const restaurant = staffDb?.restaurant || {};
-  if (restaurant.logoDataUrl) return `<img class="ticket-logo" src="${restaurant.logoDataUrl}" alt="Logo" />`;
-  return `<div class="brand">${escapeHtml(restaurant.name || 'AUREA')}</div>`;
 }
 
 function ticketBodyWidthMm(width = ticketWidthMm()) {
@@ -158,18 +130,41 @@ function ticketBodyWidthMm(width = ticketWidthMm()) {
 
 function ticketPrintStyles(width = ticketWidthMm()) {
   const bodyWidth = ticketBodyWidthMm(width);
-  const brandSize = width === 58 ? 17 : 20;
+  const brandSize = width === 58 ? 16 : 18;
   const baseSize = width === 58 ? 11 : 12;
   const strongSize = width === 58 ? 13 : 15;
+  const logoHeight = width === 58 ? 18 : 23;
   return `
     @page{size:${width}mm auto;margin:0}
     *{box-sizing:border-box}
     html,body{margin:0;padding:0;background:#fff;color:#111}
     body{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Courier New",monospace;width:${bodyWidth}mm;margin:0 auto;font-size:${baseSize}px;line-height:1.28;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-    .ticket{padding:3mm 1mm 20mm}
-    .center{text-align:center}.ticket-logo{display:block;max-width:28mm;max-height:12mm;object-fit:contain;margin:0 auto 2mm}.brand{font-size:${brandSize}px;font-weight:900;letter-spacing:.06em}.muted{color:#555}.line{border-top:1px dashed #222;margin:7px 0}.row{display:flex;justify-content:space-between;gap:6px;align-items:flex-start}.row span:last-child,.row strong:last-child{text-align:right}.item{margin:6px 0;break-inside:avoid}.item strong{font-size:${strongSize}px}.item small{display:block;color:#555;margin-top:2px}.total{font-size:${width === 58 ? 14 : 16}px;font-weight:900}.footer{margin-top:8px;text-align:center;font-size:10px;color:#555}.print-actions{display:grid;gap:8px;margin-top:12px}.print-actions button{width:100%;padding:10px;border:0;border-radius:10px;background:#111;color:#fff;font-weight:800}
-    @media print{.print-actions{display:none!important}body{width:${bodyWidth}mm}.ticket{padding:2mm 0 20mm}}
+    .ticket{padding:3mm 1.2mm 30mm}
+    .header{margin-bottom:5px;padding:2mm 1mm 3mm;text-align:center;border-bottom:1px solid #111;background:linear-gradient(180deg,#f4d36f 0%,#fff7d7 100%)}
+    .logo-wrap{margin:0 auto 2mm;display:flex;justify-content:center;align-items:center;min-height:${logoHeight}mm}
+    .logo-wrap img{max-width:82%;max-height:${logoHeight}mm;object-fit:contain;display:block;filter:grayscale(1) contrast(1.18)}
+    .brand{font-size:${brandSize}px;font-weight:900;letter-spacing:.08em;text-transform:uppercase}
+    .brand-sub{font-size:10px;color:#444;letter-spacing:.18em;text-transform:uppercase;margin-top:1px}
+    .center{text-align:center}
+    .muted{color:#555}
+    .line{border-top:1px dashed #222;margin:7px 0}
+    .row{display:flex;justify-content:space-between;gap:6px;align-items:flex-start}
+    .row span:last-child,.row strong:last-child{text-align:right}
+    .item{margin:6px 0;break-inside:avoid}
+    .item strong{font-size:${strongSize}px}
+    .item small{display:block;color:#555;margin-top:2px}
+    .total{font-size:${width === 58 ? 14 : 16}px;font-weight:900}
+    .footer{margin-top:8px;text-align:center;font-size:10px;color:#555}
+    .feed{height:30mm}
+    .print-actions{display:grid;gap:8px;margin-top:12px}
+    .print-actions button{width:100%;padding:10px;border:0;border-radius:10px;background:#111;color:#fff;font-weight:800}
+    @media print{.print-actions{display:none!important}body{width:${bodyWidth}mm}.ticket{padding:2mm 0 30mm}}
   `;
+}
+
+function ticketHeaderHtml() {
+  const logo = ticketLogoDataUrl();
+  return `<div class="header">${logo ? `<div class="logo-wrap"><img src="${logo}" alt="Logo" /></div>` : ''}<div class="brand">${escapeHtml(ticketBrandName())}</div><div class="brand-sub">Aurea by KMO</div></div>`;
 }
 
 function printHtmlDocument(title, bodyHtml, options = {}) {
@@ -178,28 +173,13 @@ function printHtmlDocument(title, bodyHtml, options = {}) {
   const footer = options.footer || 'Gracias por su preferencia';
   const w = window.open('', '_blank', 'width=380,height=720');
   if (!w) return toast('El navegador bloqueó la ventana de impresión. Permite ventanas emergentes.');
-  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escapeHtml(title)}</title><style>${ticketPrintStyles(width)}</style></head><body><div class="ticket"><div class="center">${ticketLogoHtml()}<div class="muted">AUREA by KMO</div></div><div class="line"></div>${bodyHtml}<div class="line"></div><div class="footer">${escapeHtml(footer)}</div><div class="print-actions"><button onclick="window.print()">Imprimir</button><button onclick="window.close()">Cerrar</button></div></div><script>window.addEventListener('load',()=>setTimeout(()=>{window.focus();window.print()},450));<\/script></body></html>`);
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escapeHtml(title)}</title><style>${ticketPrintStyles(width)}</style></head><body><div class="ticket">${ticketHeaderHtml()}<div class="line"></div>${bodyHtml}<div class="line"></div><div class="footer">${escapeHtml(footer)}</div><div class="feed"></div><div class="print-actions"><button onclick="window.print()">Imprimir</button><button onclick="window.close()">Cerrar</button></div></div><script>window.addEventListener('load',()=>setTimeout(()=>{window.focus();window.print()},450));<\/script></body></html>`);
   w.document.close();
-}
-
-function printStaffOrderDataBridge(order) {
-  const bridge = window.AureaPrintBridge;
-  if (!bridge?.shouldUseBridge?.() || !order) return false;
-  const ticketText = bridge.buildOrderTicketText(order, {
-    restaurantName: staffDb?.restaurant?.name || 'AUREA',
-    ticketWidthMm: ticketWidthMm(),
-    title: `COMANDA #${order.commandNumber || '-'}`,
-    showPrices: false,
-    showTotal: false,
-    footer: 'Ticket de cocina'
-  });
-  return bridge.printTextIfBridge(ticketText, printBrandOptions());
 }
 
 function printStaffOrderTicket(orderId) {
   const order = (staffDb.orders || []).find(item => item.id === orderId);
   if (!order) return toast('Comanda no encontrada');
-  if (printStaffOrderDataBridge(order)) return;
   const items = (order.items || []).map(item => `
     <div class="item"><div class="row"><strong>${escapeHtml(item.qty)}× ${escapeHtml(item.name)}</strong><span>${money(item.subtotal)}</span></div>${item.modifierName ? `<small>${escapeHtml(item.modifierGroupName || 'Opción')}: ${escapeHtml(item.modifierName)}</small>` : ''}${item.note ? `<small>Nota: ${escapeHtml(item.note)}</small>` : ''}${item.dinerName ? `<small>Cuenta: ${escapeHtml(item.dinerName)}</small>` : ''}</div>
   `).join('');
@@ -217,20 +197,6 @@ function printStaffBillTicket() {
   const table = (staffDb.tables || []).find(item => item.id === currentPaymentTableId);
   const lines = billLinesForTable(currentPaymentTableId);
   const total = lines.reduce((sum, line) => sum + Number(line.subtotal || 0), 0);
-  const bridge = window.AureaPrintBridge;
-  if (bridge?.shouldUseBridge?.()) {
-    const ticketText = bridge.buildBillTicketText({
-      tableName: session?.tableName || table?.name || 'Mesa',
-      items: lines,
-      total,
-      note: 'Cuenta estimada. Admin/capitan confirma el cierre final.'
-    }, {
-      restaurantName: staffDb?.restaurant?.name || 'AUREA',
-      ticketWidthMm: ticketWidthMm(),
-      footer: 'Gracias por su preferencia'
-    });
-    if (bridge.printTextIfBridge(ticketText, printBrandOptions())) return;
-  }
   const items = lines.map(line => `
     <div class="item"><div class="row"><span>${escapeHtml(line.qty)}× ${escapeHtml(line.name)}</span><strong>${money(line.subtotal)}</strong></div>${line.modifierName ? `<small>${escapeHtml(line.modifierGroupName || 'Opción')}: ${escapeHtml(line.modifierName)}</small>` : ''}${line.note ? `<small>Nota: ${escapeHtml(line.note)}</small>` : ''}${line.dinerName ? `<small>Cuenta: ${escapeHtml(line.dinerName)}</small>` : ''}</div>
   `).join('');
@@ -522,21 +488,6 @@ function openStaffBillModal(tableId) {
   ` : '<div class="item"><div>Esta mesa todavía no tiene productos registrados.</div></div>';
 
   document.getElementById('staffBillModal').classList.add('active');
-  autoPrintStaffBillIfNeeded(tableId);
-}
-
-function autoPrintStaffBillIfNeeded(tableId) {
-  const key = staffBillPrintKey(tableId);
-  const printed = staffAutoPrintedBills();
-  if (printed.has(key)) return;
-  printed.add(key);
-  saveStaffAutoPrintedBills(printed);
-  setTimeout(() => {
-    if (currentPaymentTableId === tableId) {
-      toast('Imprimiendo ticket de cuenta');
-      printStaffBillTicket();
-    }
-  }, 350);
 }
 
 function closeStaffBillModal() {
@@ -744,13 +695,7 @@ function selectStaffCategory(categoryId) {
 function openStaffItemEditor(itemId) {
   currentStaffEditingItemId = itemId;
   renderStaffOrderItems();
-}
-
-function adjustStaffQuickQty(delta) {
-  const input = document.getElementById('staffQuickQty');
-  if (!input) return;
-  const next = Math.max(1, Math.min(20, Number(input.value || 1) + Number(delta || 0)));
-  input.value = String(next);
+  setTimeout(() => document.getElementById('staffQuickQty')?.focus(), 50);
 }
 
 function closeStaffItemEditor() {
@@ -853,11 +798,7 @@ async function renderStaffOrderItems() {
           ` : ''}
           <div class="grid">
             <label class="col-4">Cantidad
-              <div class="qty-stepper">
-                <button type="button" class="btn secondary small" onclick="adjustStaffQuickQty(-1)">−</button>
-                <input id="staffQuickQty" class="input qty-display" type="text" inputmode="none" readonly value="1" aria-label="Cantidad" />
-                <button type="button" class="btn secondary small" onclick="adjustStaffQuickQty(1)">+</button>
-              </div>
+              <input id="staffQuickQty" class="input" type="number" min="1" max="20" value="1" />
             </label>
             <label class="col-4">Cuenta / persona
               <input id="staffQuickDiner" class="input" placeholder="Ej. Mesa, Eduardo, Joel..." />
@@ -932,7 +873,6 @@ async function submitStaffOrder() {
     closeStaffOrderModal();
     toast(`Pedido #${data.order.commandNumber} enviado a cocina`);
     await loadStaffData();
-    setTimeout(() => printStaffOrderDataBridge(data.order), 250);
   } catch (error) {
     toast(error.message);
   }
@@ -1065,7 +1005,7 @@ checkStaffSession();
 
 
 const AUREA_SUPPORT_WHATSAPP = '526601552214';
-const AUREA_RELEASE_VERSION = '0.9.4';
+const AUREA_RELEASE_VERSION = '0.9.1';
 
 function supportWhatsAppUrl(panel) {
   const restaurant = (typeof staffDb !== 'undefined' && staffDb?.restaurant?.name) || (typeof db !== 'undefined' && db?.restaurant?.name) || (typeof kitchenDb !== 'undefined' && kitchenDb?.restaurant?.name) || 'AUREA';

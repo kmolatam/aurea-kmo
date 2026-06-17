@@ -5,7 +5,7 @@ let tablesSignature = '';
 let crmFilter = 'all';
 let pendingLogoDataUrl = undefined;
 const qrCache = new Map();
-const ADMIN_JS_VERSION = '0.9.4';
+const ADMIN_JS_VERSION = '0.9.1';
 
 function money(value) {
   return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(value || 0);
@@ -304,192 +304,20 @@ function kitchenStations() {
   ];
 }
 
-function kitchenStationDisplayLabel(station) {
-  const id = String(station?.id || '').toLowerCase();
-  const raw = String(station?.label || '').trim();
-  const plain = raw.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
-  const legacy = { hot: 'Barra caliente', cold: 'Barra fría', drinks: 'Bebidas' };
-  if (!raw || raw.toLowerCase() === id || legacy[plain]) return legacy[id] || raw || id || 'Área';
-  return raw;
-}
-
 function kitchenStationName(value) {
   const station = kitchenStations().find(item => item.id === (value || 'hot')) || kitchenStations()[0] || { id: 'hot', label: 'Barra caliente', icon: '🔥' };
-  const label = kitchenStationDisplayLabel(station);
-  return `${station.icon ? `${station.icon} ` : ''}${label}`;
+  return `${station.icon ? `${station.icon} ` : ''}${station.label || station.id}`;
 }
 
 function kitchenStationsText() {
-  return kitchenStations().map(station => kitchenStationDisplayLabel(station)).join('\n');
-}
-
-function previewStationId(label) {
-  return String(label || '')
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '') || 'zona';
-}
-
-function parseKitchenStationsTextPreview() {
-  const value = document.getElementById('kitchenStationsText')?.value || '';
-  const seen = new Set();
-  return value.split(/(?:\n|[|,])+/)
-    .map(label => label.trim())
-    .filter(label => {
-      const key = label.toLowerCase();
-      if (!label || seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    })
-    .slice(0, 30)
-    .map(label => ({ label, id: previewStationId(label) }));
-}
-
-function renderKitchenStationsPreview() {
-  const box = document.getElementById('kitchenStationsPreview');
-  if (!box) return;
-  const stations = parseKitchenStationsTextPreview();
-  if (!stations.length) {
-    box.innerHTML = '<div class="item-meta">Agrega al menos una zona. Ejemplo: Barra caliente, Bebidas.</div>';
-    return;
-  }
-  box.innerHTML = `
-    <div class="item-meta" style="margin-bottom:8px;">Vista previa para el restaurantero:</div>
-    <div class="station-preview-grid">
-      ${stations.map((station, index) => `<span class="pill">${index + 1}. ${escapeHtml(station.label)}</span>`).join('')}
-    </div>
-    <div class="item-meta" style="margin-top:8px;">AUREA guardará IDs internos automáticamente. El cliente solo verá nombres.</div>
-  `;
-}
-
-
-function renderQuickKitchenAreas() {
-  const box = document.getElementById('quickKitchenStationsList');
-  if (!box) return;
-  const stations = kitchenStations();
-  if (!stations.length) {
-    box.innerHTML = '<div class="item-meta">Sin áreas. Agrega Caliente, Bebidas o las que necesite el restaurante.</div>';
-    return;
-  }
-  box.innerHTML = `
-    <div class="item-meta" style="margin-bottom:8px;">Áreas activas:</div>
-    <div class="station-preview-grid">
-      ${stations.map((station, index) => `
-        <span class="pill station-pill">
-          ${index + 1}. ${escapeHtml(kitchenStationName(station.id))}
-          <button type="button" onclick="removeQuickKitchenArea('${escapeHtml(station.id)}')" aria-label="Quitar ${escapeHtml(kitchenStationDisplayLabel(station))}">×</button>
-        </span>
-      `).join('')}
-    </div>
-    <div class="item-meta" style="margin-top:8px;">Después asigna cada platillo a su área en Menú y cada cocinero aquí mismo.</div>
-  `;
-}
-
-function quickKitchenAreaLabels() {
-  return kitchenStations().map(station => kitchenStationDisplayLabel(station));
-}
-
-function setKitchenAreaLabels(labels) {
-  const cleaned = [];
-  const seen = new Set();
-  for (const label of labels || []) {
-    const clean = String(label || '').trim();
-    const key = clean.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
-    if (!clean || seen.has(key)) continue;
-    seen.add(key);
-    cleaned.push(clean);
-  }
-  const text = cleaned.slice(0, 30).join('\n');
-  const kitchenText = document.getElementById('kitchenStationsText');
-  if (kitchenText) kitchenText.value = text;
-  if (db?.restaurant) {
-    db.restaurant.kitchenStations = cleaned.map(label => ({ id: previewStationId(label), label, icon: '' }));
-  }
-  renderKitchenStationsPreview();
-  renderQuickKitchenAreas();
-  renderKitchenStationOptions(document.getElementById('itemKitchenStation')?.value || '');
-}
-
-function addQuickKitchenArea() {
-  const input = document.getElementById('quickKitchenStationName');
-  const label = String(input?.value || '').trim();
-  if (!label) return toast('Escribe el nombre del área. Ej. Bebidas.');
-  const labels = quickKitchenAreaLabels();
-  labels.push(label);
-  setKitchenAreaLabels(labels);
-  if (input) input.value = '';
-  toast('Área agregada. No olvides guardar áreas.');
-}
-
-function removeQuickKitchenArea(id) {
-  const target = String(id || '');
-  const labels = kitchenStations()
-    .filter(station => station.id !== target)
-    .map(station => kitchenStationDisplayLabel(station));
-  if (!labels.length) return toast('Deja al menos un área de cocina.');
-  setKitchenAreaLabels(labels);
-  toast('Área quitada. Guarda para aplicar.');
-}
-
-function restaurantPayloadWithKitchenStations(text) {
-  const restaurant = db?.restaurant || {};
-  const printSettings = restaurant.printSettings || {};
-  const wa = restaurant.whatsappOfficial || {};
-  return {
-    name: restaurant.name || 'AUREA',
-    subtitle: restaurant.subtitle || '',
-    logoText: restaurant.logoText || 'AUREA',
-    whatsapp: restaurant.whatsapp || '',
-    instanceSlug: restaurant.instanceSlug || '',
-    pinPrefix: restaurant.pinPrefix || '',
-    address: restaurant.address || '',
-    hours: restaurant.hours || '',
-    crmOptInText: restaurant.crmOptInText || '',
-    accentColor: restaurant.accentColor || '#c9a44c',
-    operationMode: restaurant.operationMode || 'commands',
-    assignmentMode: restaurant.assignmentMode || 'free',
-    kitchenStations: text,
-    printSettings: {
-      kitchenAutoPrintEnabled: printSettings.kitchenAutoPrintEnabled !== false,
-      ticketWidthMm: printSettings.ticketWidthMm || 58
-    },
-    whatsappOfficial: {
-      enabled: Boolean(wa.enabled),
-      displayName: wa.displayName || restaurant.name || '',
-      businessPortfolioId: wa.businessPortfolioId || '',
-      wabaId: wa.wabaId || '',
-      phoneNumberId: wa.phoneNumberId || '',
-      webhookUrl: wa.webhookUrl || '',
-      notes: wa.notes || '',
-      status: wa.status || 'not_connected'
-    }
-  };
-}
-
-async function saveQuickKitchenAreas() {
-  try {
-    const text = document.getElementById('kitchenStationsText')?.value || quickKitchenAreaLabels().join('\n');
-    await api('/api/admin/restaurant', {
-      method: 'PUT',
-      body: JSON.stringify(restaurantPayloadWithKitchenStations(text))
-    });
-    toast('Áreas de cocina guardadas');
-    await loadData(true);
-  } catch (error) {
-    toast(error.message);
-  }
+  return kitchenStations().map(station => station.label || station.id).join('\n');
 }
 
 function renderKitchenStationOptions(selected = '') {
   const stations = kitchenStations();
   const select = document.getElementById('itemKitchenStation');
   if (select) {
-    select.innerHTML = stations.map(station => {
-      const label = kitchenStationDisplayLabel(station);
-      return `<option value="${escapeHtml(station.id)}">${escapeHtml(station.icon ? `${station.icon} ${label}` : label)}</option>`;
-    }).join('\n');
+    select.innerHTML = stations.map(station => `<option value="${escapeHtml(station.id)}">${escapeHtml(station.icon ? `${station.icon} ${station.label}` : station.label)}</option>`).join('\n');
     select.value = stations.some(station => station.id === selected) ? selected : (stations[0]?.id || 'hot');
   }
   const staffStations = document.getElementById('staffKitchenStations');
@@ -497,7 +325,7 @@ function renderKitchenStationOptions(selected = '') {
     staffStations.innerHTML = stations.map(station => `
       <label class="check-pill">
         <input type="checkbox" name="staffKitchenStation" value="${escapeHtml(station.id)}" />
-        <span>${escapeHtml(station.icon ? `${station.icon} ${kitchenStationDisplayLabel(station)}` : kitchenStationDisplayLabel(station))}</span>
+        <span>${escapeHtml(station.icon ? `${station.icon} ${station.label}` : station.label)}</span>
       </label>
     `).join('\n');
   }
@@ -524,21 +352,25 @@ function ticketWidthMm() {
   return value === 80 ? 80 : 58;
 }
 
-
-function printBrandOptions() {
-  const restaurant = db?.restaurant || {};
-  return {
-    restaurantName: restaurant.name || 'AUREA',
-    logoText: restaurant.logoText || restaurant.name || 'AUREA',
-    logoDataUrl: restaurant.logoDataUrl || '',
-    feedDots: 175
-  };
+function ticketBodyWidthMm(width = ticketWidthMm()) {
+  return width === 58 ? 48 : 72;
 }
 
-function ticketLogoHtml() {
-  const restaurant = db?.restaurant || {};
-  if (restaurant.logoDataUrl) return `<img class="ticket-logo" src="${restaurant.logoDataUrl}" alt="Logo" />`;
-  return `<div class="brand">${escapeHtml(restaurant.name || 'AUREA')}</div>`;
+function ticketRestaurant() {
+  return db?.restaurant || {};
+}
+
+function ticketBrandName() {
+  return ticketRestaurant().name || 'AUREA';
+}
+
+function ticketLogoDataUrl() {
+  return ticketRestaurant().logoDataUrl || '';
+}
+
+function ticketWidthMm() {
+  const value = Number(db?.restaurant?.printSettings?.ticketWidthMm || 58);
+  return value === 80 ? 80 : 58;
 }
 
 function ticketBodyWidthMm(width = ticketWidthMm()) {
@@ -547,50 +379,45 @@ function ticketBodyWidthMm(width = ticketWidthMm()) {
 
 function ticketPrintStyles(width = ticketWidthMm()) {
   const bodyWidth = ticketBodyWidthMm(width);
-  const brandSize = width === 58 ? 17 : 20;
+  const brandSize = width === 58 ? 16 : 18;
   const baseSize = width === 58 ? 11 : 12;
   const strongSize = width === 58 ? 13 : 15;
+  const logoHeight = width === 58 ? 18 : 23;
   return `
     @page{size:${width}mm auto;margin:0}
     *{box-sizing:border-box}
     html,body{margin:0;padding:0;background:#fff;color:#111}
     body{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Courier New",monospace;width:${bodyWidth}mm;margin:0 auto;font-size:${baseSize}px;line-height:1.28;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-    .ticket{padding:3mm 1mm 20mm}
-    .center{text-align:center}.ticket-logo{display:block;max-width:28mm;max-height:12mm;object-fit:contain;margin:0 auto 2mm}.brand{font-size:${brandSize}px;font-weight:900;letter-spacing:.06em}.muted{color:#555}.line{border-top:1px dashed #222;margin:7px 0}.row{display:flex;justify-content:space-between;gap:6px;align-items:flex-start}.row span:last-child,.row strong:last-child{text-align:right}.item{margin:6px 0;break-inside:avoid}.item strong{font-size:${strongSize}px}.item small{display:block;color:#555;margin-top:2px}.total{font-size:${width === 58 ? 14 : 16}px;font-weight:900}.footer{margin-top:8px;text-align:center;font-size:10px;color:#555}.print-actions{display:grid;gap:8px;margin-top:12px}.print-actions button{width:100%;padding:10px;border:0;border-radius:10px;background:#111;color:#fff;font-weight:800}
-    @media print{.print-actions{display:none!important}body{width:${bodyWidth}mm}.ticket{padding:2mm 0 20mm}}
+    .ticket{padding:3mm 1.2mm 30mm}
+    .header{margin-bottom:5px;padding:2mm 1mm 3mm;text-align:center;border-bottom:1px solid #111;background:linear-gradient(180deg,#f4d36f 0%,#fff7d7 100%)}
+    .logo-wrap{margin:0 auto 2mm;display:flex;justify-content:center;align-items:center;min-height:${logoHeight}mm}
+    .logo-wrap img{max-width:82%;max-height:${logoHeight}mm;object-fit:contain;display:block;filter:grayscale(1) contrast(1.18)}
+    .brand{font-size:${brandSize}px;font-weight:900;letter-spacing:.08em;text-transform:uppercase}
+    .brand-sub{font-size:10px;color:#444;letter-spacing:.18em;text-transform:uppercase;margin-top:1px}
+    .center{text-align:center}
+    .muted{color:#555}
+    .line{border-top:1px dashed #222;margin:7px 0}
+    .row{display:flex;justify-content:space-between;gap:6px;align-items:flex-start}
+    .row span:last-child,.row strong:last-child{text-align:right}
+    .item{margin:6px 0;break-inside:avoid}
+    .item strong{font-size:${strongSize}px}
+    .item small{display:block;color:#555;margin-top:2px}
+    .station{font-size:${width === 58 ? 14 : 16}px;font-weight:900}
+    .total{font-size:${width === 58 ? 14 : 16}px;font-weight:900}
+    .footer{margin-top:8px;text-align:center;font-size:10px;color:#555}
+    .feed{height:30mm}
+    .print-actions{display:grid;gap:8px;margin-top:12px}
+    .print-actions button{width:100%;padding:10px;border:0;border-radius:10px;background:#111;color:#fff;font-weight:800}
+    @media print{.print-actions{display:none!important}body{width:${bodyWidth}mm}.ticket{padding:2mm 0 30mm}}
   `;
 }
 
-function printHtmlDocument(title, bodyHtml, options = {}) {
-  const restaurant = db?.restaurant?.name || 'AUREA';
-  const width = ticketWidthMm();
-  const footer = options.footer || 'Gracias por su preferencia';
-  const w = window.open('', '_blank', 'width=380,height=720');
-  if (!w) return toast('El navegador bloqueó la ventana de impresión. Permite ventanas emergentes.');
-  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escapeHtml(title)}</title><style>${ticketPrintStyles(width)}</style></head><body><div class="ticket"><div class="center">${ticketLogoHtml()}<div class="muted">AUREA by KMO</div></div><div class="line"></div>${bodyHtml}<div class="line"></div><div class="footer">${escapeHtml(footer)}</div><div class="print-actions"><button onclick="window.print()">Imprimir</button><button onclick="window.close()">Cerrar</button></div></div><script>window.addEventListener('load',()=>setTimeout(()=>{window.focus();window.print()},450));<\/script></body></html>`);
-  w.document.close();
+function ticketHeaderHtml() {
+  const logo = ticketLogoDataUrl();
+  return `<div class="header">${logo ? `<div class="logo-wrap"><img src="${logo}" alt="Logo" /></div>` : ''}<div class="brand">${escapeHtml(ticketBrandName())}</div><div class="brand-sub">Aurea by KMO</div></div>`;
 }
 
 function printAdminTestTicket() {
-  const bridge = window.AureaPrintBridge;
-  if (bridge?.shouldUseBridge?.()) {
-    const width = bridge.charsForWidth(ticketWidthMm());
-    const ticketText = [
-      bridge.center(db?.restaurant?.name || 'AUREA', width),
-      bridge.center('AUREA by KMO', width),
-      bridge.line(width),
-      bridge.center('PRUEBA DE IMPRESION', width),
-      bridge.center(new Date().toLocaleString('es-MX'), width),
-      bridge.line(width),
-      'Urovo i9100 / Aurea Print',
-      `Ancho configurado: ${ticketWidthMm()} mm`,
-      bridge.line(width),
-      bridge.row('AUREA', 'OK', width),
-      bridge.line(width),
-      bridge.center('Modulo puente activo', width)
-    ].join('\n');
-    if (bridge.printTextIfBridge(ticketText, printBrandOptions())) return;
-  }
   printHtmlDocument('Prueba impresión AUREA', `
     <div class="center"><strong>PRUEBA DE IMPRESIÓN</strong><br><span class="muted">${new Date().toLocaleString('es-MX')}</span></div>
     <div class="line"></div>
@@ -600,24 +427,9 @@ function printAdminTestTicket() {
   `, { footer: 'Módulo de impresión web' });
 }
 
-function printAdminOrderDataBridge(order) {
-  const bridge = window.AureaPrintBridge;
-  if (!bridge?.shouldUseBridge?.() || !order) return false;
-  const ticketText = bridge.buildOrderTicketText(order, {
-    restaurantName: db?.restaurant?.name || 'AUREA',
-    ticketWidthMm: ticketWidthMm(),
-    title: `COMANDA #${order.commandNumber || '-'}`,
-    showPrices: true,
-    showTotal: true,
-    footer: 'Comanda administrativa'
-  });
-  return bridge.printTextIfBridge(ticketText, printBrandOptions());
-}
-
 function printAdminOrderTicket(orderId) {
   const order = (db.orders || []).find(item => item.id === orderId);
   if (!order) return toast('Comanda no encontrada');
-  if (printAdminOrderDataBridge(order)) return;
   const items = (order.items || []).map(item => `
     <div class="item"><div class="row"><strong>${escapeHtml(item.qty)}× ${escapeHtml(item.name)}</strong><span>${money(item.subtotal)}</span></div>${item.modifierName ? `<small>${escapeHtml(item.modifierGroupName || 'Opción')}: ${escapeHtml(item.modifierName)}</small>` : ''}${item.note ? `<small>Nota: ${escapeHtml(item.note)}</small>` : ''}${item.dinerName ? `<small>Cuenta: ${escapeHtml(item.dinerName)}</small>` : ''}</div>
   `).join('\n');
@@ -1055,18 +867,10 @@ async function saveStaffZones(staffId) {
 async function saveStaffKitchenZones(staffId) {
   const member = db.staff.find(s => s.id === staffId);
   if (!member) return;
-  const stations = kitchenStations();
-  const currentIndexes = (member.kitchenStationIds || [])
-    .map(id => stations.findIndex(station => station.id === id) + 1)
-    .filter(index => index > 0)
-    .join(', ');
-  const available = stations.map((station, index) => `${index + 1}) ${station.label}`).join('\n');
-  const raw = prompt(`Selecciona zonas por numero, separadas por coma. Vacío = ve todas.\n\n${available}`, currentIndexes);
+  const available = kitchenStations().map(station => `${station.id}=${station.label}`).join(', ');
+  const raw = prompt(`IDs de cocina separados por coma. Disponibles: ${available}. Vacío = ve todas.`, (member.kitchenStationIds || []).join(', '));
   if (raw === null) return;
-  const kitchenStationIds = raw.split(',')
-    .map(value => Number(String(value).trim()))
-    .filter(index => Number.isInteger(index) && index >= 1 && index <= stations.length)
-    .map(index => stations[index - 1].id);
+  const kitchenStationIds = raw.split(',').map(value => value.trim()).filter(Boolean);
   try {
     await api(`/api/admin/staff/${staffId}`, { method: 'PUT', body: JSON.stringify({ kitchenStationIds }) });
     toast('Zonas de cocina actualizadas');
@@ -1234,8 +1038,6 @@ function renderSettings() {
   document.getElementById('assignmentMode').value = db.restaurant.assignmentMode || 'free';
   const kitchenText = document.getElementById('kitchenStationsText');
   if (kitchenText) kitchenText.value = kitchenStationsText();
-  renderKitchenStationsPreview();
-  renderQuickKitchenAreas();
   const printSettings = db.restaurant.printSettings || {};
   const autoPrint = document.getElementById('kitchenAutoPrintEnabled');
   if (autoPrint) autoPrint.checked = printSettings.kitchenAutoPrintEnabled !== false;
@@ -1594,7 +1396,6 @@ async function submitAdminManualOrder() {
     closeAdminManualOrderModal();
     toast(`Comanda #${data.order.commandNumber} creada`);
     await loadData(true);
-    setTimeout(() => printAdminOrderDataBridge(data.order), 250);
   } catch (error) {
     toast(error.message);
   }
@@ -1690,17 +1491,6 @@ document.getElementById('restaurantLogoFile').addEventListener('change', async e
   } catch (error) {
     toast(error.message);
     event.target.value = '';
-  }
-});
-
-document.getElementById('kitchenStationsText')?.addEventListener('input', () => {
-  renderKitchenStationsPreview();
-  renderQuickKitchenAreas();
-});
-document.getElementById('quickKitchenStationName')?.addEventListener('keydown', event => {
-  if (event.key === 'Enter') {
-    event.preventDefault();
-    addQuickKitchenArea();
   }
 });
 
@@ -1851,7 +1641,7 @@ checkSession();
 
 
 const AUREA_SUPPORT_WHATSAPP = '526601552214';
-const AUREA_RELEASE_VERSION = '0.9.5';
+const AUREA_RELEASE_VERSION = '0.9.1';
 
 function supportWhatsAppUrl(panel) {
   const restaurant = (typeof staffDb !== 'undefined' && staffDb?.restaurant?.name) || (typeof db !== 'undefined' && db?.restaurant?.name) || (typeof kitchenDb !== 'undefined' && kitchenDb?.restaurant?.name) || 'AUREA';
