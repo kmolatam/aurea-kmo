@@ -1,7 +1,7 @@
 {
   "name": "aurea-by-kmo-mvp",
-  "version": "0.9.6-areas-cocina",
-  "description": "AUREA by KMO - áreas de cocina configurables visibles, impresión térmica y compatibilidad Urovo",
+  "version": "0.9.7-hybrid-print-complete",
+  "description": "AUREA by KMO - version completa con areas claras, puente Urovo, logo en tickets y margen inferior 3cm",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"

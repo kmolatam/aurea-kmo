@@ -105,65 +105,42 @@ function ticketWidthMm() {
   return value === 80 ? 80 : 58;
 }
 
-function ticketRestaurant() {
-  return kitchenDb?.restaurant || {};
+
+function printBrandOptions() {
+  const restaurant = kitchenDb?.restaurant || {};
+  return {
+    restaurantName: restaurant.name || 'AUREA',
+    logoText: restaurant.logoText || restaurant.name || 'AUREA',
+    logoDataUrl: restaurant.logoDataUrl || '',
+    feedDots: 260
+  };
 }
 
-function ticketBrandName() {
-  return ticketRestaurant().name || 'AUREA';
-}
-
-function ticketLogoDataUrl() {
-  return ticketRestaurant().logoDataUrl || '';
-}
-
-function ticketWidthMm() {
-  const value = Number(kitchenDb?.restaurant?.printSettings?.ticketWidthMm || 58);
-  return value === 80 ? 80 : 58;
-}
-
-function ticketBodyWidthMm(width = ticketWidthMm()) {
-  return width === 58 ? 48 : 72;
+function ticketLogoHtml() {
+  const restaurant = kitchenDb?.restaurant || {};
+  if (restaurant.logoDataUrl) return `<img class="ticket-logo" src="${restaurant.logoDataUrl}" alt="Logo" />`;
+  return `<div class="brand">${escapeHtml(restaurant.name || 'AUREA')}</div>`;
 }
 
 function ticketPrintStyles(width = ticketWidthMm()) {
-  const bodyWidth = ticketBodyWidthMm(width);
-  const brandSize = width === 58 ? 16 : 18;
+  const bodyWidth = width === 58 ? 48 : 72;
+  const brandSize = width === 58 ? 17 : 20;
   const baseSize = width === 58 ? 11 : 12;
-  const strongSize = width === 58 ? 13 : 15;
-  const logoHeight = width === 58 ? 18 : 23;
+  const strongSize = width === 58 ? 14 : 15;
   return `
     @page{size:${width}mm auto;margin:0}
     *{box-sizing:border-box}
     html,body{margin:0;padding:0;background:#fff;color:#111}
     body{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Courier New",monospace;width:${bodyWidth}mm;margin:0 auto;font-size:${baseSize}px;line-height:1.28;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-    .ticket{padding:3mm 1.2mm 30mm}
-    .header{margin-bottom:5px;padding:2mm 1mm 3mm;text-align:center;border-bottom:1px solid #111;background:linear-gradient(180deg,#f4d36f 0%,#fff7d7 100%)}
-    .logo-wrap{margin:0 auto 2mm;display:flex;justify-content:center;align-items:center;min-height:${logoHeight}mm}
-    .logo-wrap img{max-width:82%;max-height:${logoHeight}mm;object-fit:contain;display:block;filter:grayscale(1) contrast(1.18)}
-    .brand{font-size:${brandSize}px;font-weight:900;letter-spacing:.08em;text-transform:uppercase}
-    .brand-sub{font-size:10px;color:#444;letter-spacing:.18em;text-transform:uppercase;margin-top:1px}
-    .center{text-align:center}
-    .muted{color:#555}
-    .line{border-top:1px dashed #222;margin:7px 0}
-    .row{display:flex;justify-content:space-between;gap:6px;align-items:flex-start}
-    .row span:last-child,.row strong:last-child{text-align:right}
-    .item{margin:6px 0;break-inside:avoid}
-    .item strong{font-size:${strongSize}px}
-    .item small{display:block;color:#555;margin-top:2px}
-    .station{font-size:${width === 58 ? 14 : 16}px;font-weight:900}
-    .total{font-size:${width === 58 ? 14 : 16}px;font-weight:900}
-    .footer{margin-top:8px;text-align:center;font-size:10px;color:#555}
-    .feed{height:30mm}
-    .print-actions{display:grid;gap:8px;margin-top:12px}
-    .print-actions button{width:100%;padding:10px;border:0;border-radius:10px;background:#111;color:#fff;font-weight:800}
+    .ticket{padding:3mm 1mm 30mm}.center{text-align:center}.ticket-logo{display:block;max-width:34mm;max-height:16mm;object-fit:contain;margin:0 auto 2mm}.brand{font-size:${brandSize}px;font-weight:900;letter-spacing:.06em}.muted{color:#555}.line{border-top:1px dashed #222;margin:7px 0}.row{display:flex;justify-content:space-between;gap:6px}.item{margin:7px 0;break-inside:avoid}.item strong{font-size:${strongSize}px}.item small{display:block;color:#555;margin-top:2px}.station{font-size:${width === 58 ? 14 : 16}px;font-weight:900}.footer{margin-top:8px;text-align:center;font-size:10px;color:#555}.print-actions{display:grid;gap:8px;margin-top:12px}.print-actions button{width:100%;padding:10px;border:0;border-radius:10px;background:#111;color:#fff;font-weight:800}
     @media print{.print-actions{display:none!important}body{width:${bodyWidth}mm}.ticket{padding:2mm 0 30mm}}
   `;
 }
 
-function ticketHeaderHtml() {
-  const logo = ticketLogoDataUrl();
-  return `<div class="header">${logo ? `<div class="logo-wrap"><img src="${logo}" alt="Logo" /></div>` : ''}<div class="brand">${escapeHtml(ticketBrandName())}</div><div class="brand-sub">Aurea by KMO</div></div>`;
+function ticketDocument(title, bodyHtml, footer = 'Ticket de producción') {
+  const restaurant = kitchenDb?.restaurant?.name || 'AUREA';
+  const width = ticketWidthMm();
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escapeHtml(title)}</title><style>${ticketPrintStyles(width)}</style></head><body><div class="ticket"><div class="center">${ticketLogoHtml()}<div class="muted">AUREA by KMO</div></div><div class="line"></div>${bodyHtml}<div class="line"></div><div class="footer">${escapeHtml(footer)}</div><div class="print-actions"><button onclick="window.print()">Imprimir</button><button onclick="window.close()">Cerrar</button></div></div><script>window.addEventListener('load',()=>setTimeout(()=>{window.focus();window.print()},450));<\/script></body></html>`;
 }
 
 function printHtmlDocument(title, bodyHtml, options = {}) {
@@ -217,6 +194,20 @@ function printKitchenTicket(orderId, stationId = '', options = {}) {
   const station = stationById(stationId);
   const lines = (order.items || []).filter(item => !stationId || normalizeStation(item.kitchenStation) === station.id);
   if (!lines.length) return false;
+  const bridge = window.AureaPrintBridge;
+  if (bridge?.shouldUseBridge?.()) {
+    const ticketText = bridge.buildOrderTicketText(order, {
+      restaurantName: kitchenDb?.restaurant?.name || 'AUREA',
+      ticketWidthMm: ticketWidthMm(),
+      title: `COMANDA #${order.commandNumber || '-'}`,
+      stationLabel: station?.label || '',
+      items: lines,
+      showPrices: false,
+      showTotal: false,
+      footer: 'Ticket de cocina'
+    });
+    return bridge.printTextIfBridge(ticketText, printBrandOptions());
+  }
   const items = lines.map(item => `
     <div class="item"><strong>${escapeHtml(item.qty)}× ${escapeHtml(item.name)}</strong>${item.modifierName ? `<small>${escapeHtml(item.modifierGroupName || 'Opción')}: ${escapeHtml(item.modifierName)}</small>` : ''}${item.note ? `<small>Nota: ${escapeHtml(item.note)}</small>` : ''}${item.dinerName ? `<small>Cuenta: ${escapeHtml(item.dinerName)}</small>` : ''}</div>
   `).join('');
@@ -229,6 +220,25 @@ function printKitchenTicket(orderId, stationId = '', options = {}) {
 
 function printKitchenTestTicket() {
   const firstStation = visibleKitchenStations()[0] || { id: 'hot', label: 'Barra caliente', icon: '🔥' };
+  const bridge = window.AureaPrintBridge;
+  if (bridge?.shouldUseBridge?.()) {
+    const width = bridge.charsForWidth(ticketWidthMm());
+    const ticketText = [
+      bridge.center(kitchenDb?.restaurant?.name || 'AUREA', width),
+      bridge.center('AUREA by KMO', width),
+      bridge.line(width),
+      bridge.center('PRUEBA DE IMPRESION', width),
+      bridge.center(firstStation.label || 'Cocina', width),
+      bridge.center(dateTime(new Date()), width),
+      bridge.line(width),
+      '1x Ticket de prueba',
+      `  Ancho configurado: ${ticketWidthMm()} mm`,
+      '  Puente Aurea Print activo',
+      bridge.line(width),
+      bridge.center('AUREA OK', width)
+    ].join('\n');
+    if (bridge.printTextIfBridge(ticketText, printBrandOptions())) return true;
+  }
   return printHtmlDocument('Prueba impresión AUREA', `
     <div class="center"><strong>PRUEBA DE IMPRESIÓN</strong><br><span class="station">${escapeHtml(firstStation.icon ? `${firstStation.icon} ${firstStation.label}` : firstStation.label)}</span><br><span class="muted">${dateTime(new Date())}</span></div>
     <div class="line"></div>
@@ -328,7 +338,11 @@ function autoPrintPendingTickets(orders = activeKitchenOrders()) {
   for (const { order, station } of visibleTicketPairs(orders)) {
     const key = ticketKey(order.id, station.id);
     if (printed.has(key)) continue;
-    if (printKitchenTicket(order.id, station.id, { auto: true })) printed.add(key);
+    if (printKitchenTicket(order.id, station.id, { auto: true })) {
+      printed.add(key);
+      savePrintedTickets(printed);
+      if (window.AureaPrintBridge?.shouldUseBridge?.()) return;
+    }
   }
   savePrintedTickets(printed);
 }
@@ -337,9 +351,13 @@ function printVisiblePendingTickets() {
   const pairs = visibleTicketPairs(activeKitchenOrders());
   if (!pairs.length) return toast('No hay comandas pendientes para esta zona.');
   const printed = printedTickets();
-  pairs.forEach(({ order, station }) => {
-    if (printKitchenTicket(order.id, station.id)) printed.add(ticketKey(order.id, station.id));
-  });
+  for (const { order, station } of pairs) {
+    if (printKitchenTicket(order.id, station.id)) {
+      printed.add(ticketKey(order.id, station.id));
+      savePrintedTickets(printed);
+      if (window.AureaPrintBridge?.shouldUseBridge?.()) return;
+    }
+  }
   savePrintedTickets(printed);
 }
 
@@ -471,7 +489,7 @@ checkKitchenSession();
 
 
 const AUREA_SUPPORT_WHATSAPP = '526601552214';
-const AUREA_RELEASE_VERSION = '0.9.1';
+const AUREA_RELEASE_VERSION = '0.9.4';
 
 function supportWhatsAppUrl(panel) {
   const restaurant = (typeof staffDb !== 'undefined' && staffDb?.restaurant?.name) || (typeof db !== 'undefined' && db?.restaurant?.name) || (typeof kitchenDb !== 'undefined' && kitchenDb?.restaurant?.name) || 'AUREA';

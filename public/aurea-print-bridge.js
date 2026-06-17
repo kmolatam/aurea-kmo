@@ -148,6 +148,8 @@
 
     lines.push(line(width));
     lines.push(center(options.footer || 'Ticket de produccion', width));
+    lines.push('');
+    lines.push('');
     return cleanText(lines.join('\n'));
   }
 
@@ -178,6 +180,8 @@
     }
     lines.push(line(width));
     lines.push(center(options.footer || 'Gracias por su preferencia', width));
+    lines.push('');
+    lines.push('');
     return cleanText(lines.join('\n'));
   }
 
@@ -197,7 +201,7 @@
       text: ticket,
       logoDataUrl: String(options.logoDataUrl || ''),
       logoText: cleanText(options.logoText || options.restaurantName || ''),
-      feedDots: Math.max(0, Math.min(320, Number(options.feedDots || 170))),
+      feedDots: Math.max(0, Math.min(520, Number(options.feedDots || 260))),
       returnUrl: currentReturnUrl(options)
     };
   }
