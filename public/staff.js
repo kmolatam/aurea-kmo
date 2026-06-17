@@ -7,7 +7,7 @@ let currentStaffOrderDraft = [];
 let currentStaffCategoryId = '';
 let currentStaffEditingItemId = '';
 let guidedTourState = null;
-const STAFF_JS_VERSION = '0.9.1';
+const STAFF_JS_VERSION = '0.9.2-urovo-bridge';
 let notificationsBaselineReady = false;
 const seenAlertIds = new Set();
 const seenOrderIds = new Set();
@@ -139,9 +139,24 @@ function printHtmlDocument(title, bodyHtml, options = {}) {
   w.document.close();
 }
 
+function printStaffOrderDataBridge(order) {
+  const bridge = window.AureaPrintBridge;
+  if (!bridge?.shouldUseBridge?.() || !order) return false;
+  const ticketText = bridge.buildOrderTicketText(order, {
+    restaurantName: staffDb?.restaurant?.name || 'AUREA',
+    ticketWidthMm: ticketWidthMm(),
+    title: `COMANDA #${order.commandNumber || '-'}`,
+    showPrices: false,
+    showTotal: false,
+    footer: 'Ticket de cocina'
+  });
+  return bridge.printTextIfBridge(ticketText);
+}
+
 function printStaffOrderTicket(orderId) {
   const order = (staffDb.orders || []).find(item => item.id === orderId);
   if (!order) return toast('Comanda no encontrada');
+  if (printStaffOrderDataBridge(order)) return;
   const items = (order.items || []).map(item => `
     <div class="item"><div class="row"><strong>${escapeHtml(item.qty)}× ${escapeHtml(item.name)}</strong><span>${money(item.subtotal)}</span></div>${item.modifierName ? `<small>${escapeHtml(item.modifierGroupName || 'Opción')}: ${escapeHtml(item.modifierName)}</small>` : ''}${item.note ? `<small>Nota: ${escapeHtml(item.note)}</small>` : ''}${item.dinerName ? `<small>Cuenta: ${escapeHtml(item.dinerName)}</small>` : ''}</div>
   `).join('');
@@ -159,6 +174,20 @@ function printStaffBillTicket() {
   const table = (staffDb.tables || []).find(item => item.id === currentPaymentTableId);
   const lines = billLinesForTable(currentPaymentTableId);
   const total = lines.reduce((sum, line) => sum + Number(line.subtotal || 0), 0);
+  const bridge = window.AureaPrintBridge;
+  if (bridge?.shouldUseBridge?.()) {
+    const ticketText = bridge.buildBillTicketText({
+      tableName: session?.tableName || table?.name || 'Mesa',
+      items: lines,
+      total,
+      note: 'Cuenta estimada. Admin/capitan confirma el cierre final.'
+    }, {
+      restaurantName: staffDb?.restaurant?.name || 'AUREA',
+      ticketWidthMm: ticketWidthMm(),
+      footer: 'Gracias por su preferencia'
+    });
+    if (bridge.printTextIfBridge(ticketText)) return;
+  }
   const items = lines.map(line => `
     <div class="item"><div class="row"><span>${escapeHtml(line.qty)}× ${escapeHtml(line.name)}</span><strong>${money(line.subtotal)}</strong></div>${line.modifierName ? `<small>${escapeHtml(line.modifierGroupName || 'Opción')}: ${escapeHtml(line.modifierName)}</small>` : ''}${line.note ? `<small>Nota: ${escapeHtml(line.note)}</small>` : ''}${line.dinerName ? `<small>Cuenta: ${escapeHtml(line.dinerName)}</small>` : ''}</div>
   `).join('');
@@ -835,6 +864,7 @@ async function submitStaffOrder() {
     closeStaffOrderModal();
     toast(`Pedido #${data.order.commandNumber} enviado a cocina`);
     await loadStaffData();
+    setTimeout(() => printStaffOrderDataBridge(data.order), 250);
   } catch (error) {
     toast(error.message);
   }

@@ -5,7 +5,7 @@ let tablesSignature = '';
 let crmFilter = 'all';
 let pendingLogoDataUrl = undefined;
 const qrCache = new Map();
-const ADMIN_JS_VERSION = '0.9.1';
+const ADMIN_JS_VERSION = '0.9.2-urovo-bridge';
 
 function money(value) {
   return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(value || 0);
@@ -383,6 +383,25 @@ function printHtmlDocument(title, bodyHtml, options = {}) {
 }
 
 function printAdminTestTicket() {
+  const bridge = window.AureaPrintBridge;
+  if (bridge?.shouldUseBridge?.()) {
+    const width = bridge.charsForWidth(ticketWidthMm());
+    const ticketText = [
+      bridge.center(db?.restaurant?.name || 'AUREA', width),
+      bridge.center('AUREA by KMO', width),
+      bridge.line(width),
+      bridge.center('PRUEBA DE IMPRESION', width),
+      bridge.center(new Date().toLocaleString('es-MX'), width),
+      bridge.line(width),
+      'Urovo i9100 / Aurea Print',
+      `Ancho configurado: ${ticketWidthMm()} mm`,
+      bridge.line(width),
+      bridge.row('AUREA', 'OK', width),
+      bridge.line(width),
+      bridge.center('Modulo puente activo', width)
+    ].join('\n');
+    if (bridge.printTextIfBridge(ticketText)) return;
+  }
   printHtmlDocument('Prueba impresión AUREA', `
     <div class="center"><strong>PRUEBA DE IMPRESIÓN</strong><br><span class="muted">${new Date().toLocaleString('es-MX')}</span></div>
     <div class="line"></div>
@@ -392,9 +411,24 @@ function printAdminTestTicket() {
   `, { footer: 'Módulo de impresión web' });
 }
 
+function printAdminOrderDataBridge(order) {
+  const bridge = window.AureaPrintBridge;
+  if (!bridge?.shouldUseBridge?.() || !order) return false;
+  const ticketText = bridge.buildOrderTicketText(order, {
+    restaurantName: db?.restaurant?.name || 'AUREA',
+    ticketWidthMm: ticketWidthMm(),
+    title: `COMANDA #${order.commandNumber || '-'}`,
+    showPrices: true,
+    showTotal: true,
+    footer: 'Comanda administrativa'
+  });
+  return bridge.printTextIfBridge(ticketText);
+}
+
 function printAdminOrderTicket(orderId) {
   const order = (db.orders || []).find(item => item.id === orderId);
   if (!order) return toast('Comanda no encontrada');
+  if (printAdminOrderDataBridge(order)) return;
   const items = (order.items || []).map(item => `
     <div class="item"><div class="row"><strong>${escapeHtml(item.qty)}× ${escapeHtml(item.name)}</strong><span>${money(item.subtotal)}</span></div>${item.modifierName ? `<small>${escapeHtml(item.modifierGroupName || 'Opción')}: ${escapeHtml(item.modifierName)}</small>` : ''}${item.note ? `<small>Nota: ${escapeHtml(item.note)}</small>` : ''}${item.dinerName ? `<small>Cuenta: ${escapeHtml(item.dinerName)}</small>` : ''}</div>
   `).join('\n');
@@ -1361,6 +1395,7 @@ async function submitAdminManualOrder() {
     closeAdminManualOrderModal();
     toast(`Comanda #${data.order.commandNumber} creada`);
     await loadData(true);
+    setTimeout(() => printAdminOrderDataBridge(data.order), 250);
   } catch (error) {
     toast(error.message);
   }

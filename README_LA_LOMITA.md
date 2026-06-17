@@ -1,6 +1,6 @@
 # AUREA by KMO · La Lomita
 
-Versión: 0.9.1-web-print-urovo
+Versión: 0.9.2-urovo-bridge
 
 ## Cambios incluidos
 
@@ -59,3 +59,26 @@ Uso recomendado para Urovo i9100:
 
 Nota técnica:
 La impresión sigue usando `window.print()` desde navegador. Si el Urovo no expone su térmica interna al navegador/servicio de impresión, se requerirá app puente o SDK del fabricante.
+
+
+## Urovo Bridge / Áurea Print v0.9.2
+
+Esta versión agrega impresión por app puente **Áurea Print** para Urovo i9100 cuando Chrome no expone la impresora interna al `window.print()`.
+
+Flujo real:
+- Mesero crea comanda desde `/staff.html`.
+- AUREA envía el ticket al esquema `aureaprint://` usando Android Intent.
+- La app instalada **Áurea Print** recibe el texto e imprime en la térmica interna del Urovo.
+- Cocina y Admin conservan impresión web como respaldo en equipos que no sean Android.
+
+Uso recomendado:
+1. Instalar la APK **Áurea Print** en el Urovo.
+2. Abrir AUREA desde Chrome en el Urovo.
+3. Entrar a `/staff.html` o `/kitchen.html`.
+4. Crear una comanda o pulsar “Probar ticket”.
+5. En Android, AUREA usará el puente automáticamente; en PC seguirá usando impresión web.
+
+Modo manual opcional en consola del navegador:
+- Forzar puente: `AureaPrintBridge.setMode('bridge')`
+- Forzar web print: `AureaPrintBridge.setMode('web')`
+- Automático: `AureaPrintBridge.setMode('auto')`

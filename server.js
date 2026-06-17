@@ -1211,7 +1211,7 @@ function computeStaffStats(db) {
 }
 
 app.get('/health', (req, res) => {
-  res.json({ ok: true, product: 'AUREA by KMO', version: '0.9.1-web-print-urovo' });
+  res.json({ ok: true, product: 'AUREA by KMO', version: '0.9.2-urovo-bridge' });
 });
 
 app.get('/t/:tableId', (req, res) => {

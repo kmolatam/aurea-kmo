@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Prueba Áurea Print</title>
+  <style>
+    body{font-family:Arial,sans-serif;background:#111;color:#fff;padding:24px;}
+    .card{max-width:520px;margin:auto;background:#1d1d1d;border:1px solid #333;border-radius:18px;padding:22px;}
+    h1{margin-top:0;font-size:26px;}
+    textarea{width:100%;min-height:170px;border-radius:12px;border:1px solid #444;background:#0c0c0c;color:#fff;padding:12px;font-size:16px;box-sizing:border-box;}
+    button,a{display:block;width:100%;text-align:center;box-sizing:border-box;margin-top:14px;background:#fff;color:#111;text-decoration:none;border:0;border-radius:12px;padding:16px;font-weight:700;font-size:17px;}
+    .muted{color:#aaa;font-size:14px;line-height:1.45;}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Áurea Print Test</h1>
+    <p class="muted">Esta página prueba el puente hacia la app instalada en el Urovo.</p>
+    <textarea id="ticket">        AUREA
+------------------------
+PRUEBA DESDE CHROME
+
+Mesa: 1
+Mesero: Juan
+
+2x Hamburguesa
+   Nota: sin cebolla
+1x Agua mineral
+
+------------------------
+COCINA</textarea>
+    <button onclick="printTicket()">IMPRIMIR CON AUREA PRINT</button>
+    <a id="fallback" href="aureaprint://print?text=PRUEBA%20AUREA%0AMESA%201%0ATICKET%20OK">Abrir link directo simple</a>
+    <p class="muted">Si no abre, confirma que la app instalada sea Áurea Print y que el paquete sea com.aurea.print.</p>
+  </div>
+  <script>
+    function printTicket(){
+      const text = document.getElementById('ticket').value;
+      const encoded = encodeURIComponent(text);
+      window.location.href = `intent://print?text=${encoded}#Intent;scheme=aureaprint;package=com.aurea.print;end`;
+    }
+  </script>
+</body>
+</html>

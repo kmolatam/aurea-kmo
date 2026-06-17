@@ -177,6 +177,20 @@ function printKitchenTicket(orderId, stationId = '', options = {}) {
   const station = stationById(stationId);
   const lines = (order.items || []).filter(item => !stationId || normalizeStation(item.kitchenStation) === station.id);
   if (!lines.length) return false;
+  const bridge = window.AureaPrintBridge;
+  if (bridge?.shouldUseBridge?.()) {
+    const ticketText = bridge.buildOrderTicketText(order, {
+      restaurantName: kitchenDb?.restaurant?.name || 'AUREA',
+      ticketWidthMm: ticketWidthMm(),
+      title: `COMANDA #${order.commandNumber || '-'}`,
+      stationLabel: station?.label || '',
+      items: lines,
+      showPrices: false,
+      showTotal: false,
+      footer: 'Ticket de cocina'
+    });
+    return bridge.printTextIfBridge(ticketText);
+  }
   const items = lines.map(item => `
     <div class="item"><strong>${escapeHtml(item.qty)}× ${escapeHtml(item.name)}</strong>${item.modifierName ? `<small>${escapeHtml(item.modifierGroupName || 'Opción')}: ${escapeHtml(item.modifierName)}</small>` : ''}${item.note ? `<small>Nota: ${escapeHtml(item.note)}</small>` : ''}${item.dinerName ? `<small>Cuenta: ${escapeHtml(item.dinerName)}</small>` : ''}</div>
   `).join('');
@@ -189,6 +203,25 @@ function printKitchenTicket(orderId, stationId = '', options = {}) {
 
 function printKitchenTestTicket() {
   const firstStation = visibleKitchenStations()[0] || { id: 'hot', label: 'Barra caliente', icon: '🔥' };
+  const bridge = window.AureaPrintBridge;
+  if (bridge?.shouldUseBridge?.()) {
+    const width = bridge.charsForWidth(ticketWidthMm());
+    const ticketText = [
+      bridge.center(kitchenDb?.restaurant?.name || 'AUREA', width),
+      bridge.center('AUREA by KMO', width),
+      bridge.line(width),
+      bridge.center('PRUEBA DE IMPRESION', width),
+      bridge.center(firstStation.label || 'Cocina', width),
+      bridge.center(dateTime(new Date()), width),
+      bridge.line(width),
+      '1x Ticket de prueba',
+      `  Ancho configurado: ${ticketWidthMm()} mm`,
+      '  Puente Aurea Print activo',
+      bridge.line(width),
+      bridge.center('AUREA OK', width)
+    ].join('\n');
+    if (bridge.printTextIfBridge(ticketText)) return true;
+  }
   return printHtmlDocument('Prueba impresión AUREA', `
     <div class="center"><strong>PRUEBA DE IMPRESIÓN</strong><br><span class="station">${escapeHtml(firstStation.icon ? `${firstStation.icon} ${firstStation.label}` : firstStation.label)}</span><br><span class="muted">${dateTime(new Date())}</span></div>
     <div class="line"></div>
@@ -288,7 +321,11 @@ function autoPrintPendingTickets(orders = activeKitchenOrders()) {
   for (const { order, station } of visibleTicketPairs(orders)) {
     const key = ticketKey(order.id, station.id);
     if (printed.has(key)) continue;
-    if (printKitchenTicket(order.id, station.id, { auto: true })) printed.add(key);
+    if (printKitchenTicket(order.id, station.id, { auto: true })) {
+      printed.add(key);
+      savePrintedTickets(printed);
+      if (window.AureaPrintBridge?.shouldUseBridge?.()) return;
+    }
   }
   savePrintedTickets(printed);
 }
@@ -297,9 +334,13 @@ function printVisiblePendingTickets() {
   const pairs = visibleTicketPairs(activeKitchenOrders());
   if (!pairs.length) return toast('No hay comandas pendientes para esta zona.');
   const printed = printedTickets();
-  pairs.forEach(({ order, station }) => {
-    if (printKitchenTicket(order.id, station.id)) printed.add(ticketKey(order.id, station.id));
-  });
+  for (const { order, station } of pairs) {
+    if (printKitchenTicket(order.id, station.id)) {
+      printed.add(ticketKey(order.id, station.id));
+      savePrintedTickets(printed);
+      if (window.AureaPrintBridge?.shouldUseBridge?.()) return;
+    }
+  }
   savePrintedTickets(printed);
 }
 
