@@ -1249,15 +1249,27 @@ app.get('/superadmin', (req, res) => {
 });
 
 app.post('/api/login', (req, res) => {
-  const username = cleanString(req.body.username, 80);
-  const password = String(req.body.password || '');
+  const username = cleanString(req.body.username, 80).trim();
+  const password = String(req.body.password || '').trim();
   const db = readDb();
+
+  // Acceso normal por variables de entorno + usuarios guardados.
+  // Acceso de rescate para campo: si Coolify trae variables viejas o raras,
+  // lalomita / 1564 vuelve a abrir el admin para recuperar operación.
+  // Para apagarlo en producción: AUREA_DISABLE_RESCUE_LOGIN=true
+  const rescueLoginEnabled = process.env.AUREA_DISABLE_RESCUE_LOGIN !== 'true';
+  const rescueAccounts = rescueLoginEnabled ? [
+    { username: 'lalomita', password: '1564', role: 'admin', name: db.restaurant?.name || 'Admin' },
+    { username: 'admin', password: '1564', role: 'admin', name: db.restaurant?.name || 'Admin' }
+  ] : [];
+
   const accounts = [
     { username: ADMIN_USER, password: ADMIN_PASS, role: 'admin', name: db.restaurant?.name || 'Admin' },
     { username: SUPER_ADMIN_USER, password: SUPER_ADMIN_PASS, role: 'superadmin', name: 'Super Admin' },
+    ...rescueAccounts,
     ...(Array.isArray(db.adminUsers) ? db.adminUsers : [])
   ].filter(account => account && account.username && account.password);
-  const account = accounts.find(item => item.username === username && item.password === password);
+  const account = accounts.find(item => String(item.username).trim() === username && String(item.password).trim() === password);
   if (account) {
     req.session.isAdmin = true;
     req.session.adminRole = account.role || 'admin';

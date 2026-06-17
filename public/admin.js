@@ -1596,8 +1596,8 @@ document.getElementById('loginForm').addEventListener('submit', async event => {
     await api('/api/login', {
       method: 'POST',
       body: JSON.stringify({
-        username: document.getElementById('username').value,
-        password: document.getElementById('password').value
+        username: document.getElementById('username').value.trim(),
+        password: document.getElementById('password').value.trim()
       })
     });
     showAdmin();

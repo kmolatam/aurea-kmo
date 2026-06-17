@@ -1,16 +1,23 @@
-AUREA v0.9.7 COMPLETA - Híbrida / impresión Urovo estable
+AUREA v0.9.7 COMPLETA - Híbrida/impresión Urovo estable
 
 Incluye:
 - Base v0.9.6 con áreas de cocina claras.
-- aurea-print-bridge.js para impresión directa en Urovo / Áurea POS.
+- aurea-print-bridge.js intacto para no romper impresión directa en terminal Urovo.
 - Margen/feed inferior aumentado a aprox. 3 cm.
-- Logo del restaurante en tickets si se carga en Admin > Configuración > Logo.
+- Logo del restaurante en tickets web si se carga en Admin > Configuración > Logo.
 - Assets incluidos:
   public/assets/logo_restaurante_la_lomita.jpg
   public/assets/splash_aurea_amarillo.png
 
 IMPORTANTE:
-- Esta sí es versión completa del sistema web.
-- Para la terminal Urovo usa también la APK Áurea POS v0.5.
-- En el Urovo abre Cocina desde la app Áurea POS, no desde Chrome.
-- Si no imprime, verifica que /aurea-print-bridge.js cargue en el dominio.
+1. Esta versión completa sí incluye todo el sistema web.
+2. Para la terminal Urovo debes usar también la APK Áurea POS v0.5 incluida aparte.
+3. Si no imprime después de desplegar, abre en el Urovo:
+   https://TU_DOMINIO/aurea-print-bridge.js
+   Debe verse código. Si no, no se actualizó public/.
+4. En la APK abre Cocina desde la app, no desde Chrome.
+
+Después de subir:
+- Admin > Configuración > Subir logo blanco de La Lomita.
+- Cocina > Probar ticket.
+- Activar Auto imprimir.

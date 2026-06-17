@@ -1,0 +1,21 @@
+AUREA v0.9.8 - LOGIN FIX DE EMERGENCIA
+
+Qué arregla:
+- Si el portal de meseros entra pero Admin no, normalmente el servidor está vivo y el problema son credenciales/variables de entorno.
+- Esta versión conserva el login por variables AUREA_USER/AUREA_PASS, pero agrega acceso de rescate:
+
+Usuario: lalomita
+Contraseña: 1564
+
+Usuario alterno: admin
+Contraseña: 1564
+
+Para desactivar el rescate en producción, agrega en Coolify:
+AUREA_DISABLE_RESCUE_LOGIN=true
+
+Pasos:
+1. Backup.
+2. Subir esta versión completa.
+3. Redeploy.
+4. Entrar a /admin.html con lalomita / 1564.
+5. Ya dentro, revisa configuración y usuarios.
