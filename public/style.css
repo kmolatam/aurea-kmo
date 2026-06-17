@@ -1447,13 +1447,13 @@ select option { color: #111; }
 .client-page,
 .main.kitchen-main,
 #staffApp.client-page {
-  padding-bottom: calc(92px + 1cm);
+  padding-bottom: calc(92px + 2cm);
 }
 .modal {
-  padding-bottom: calc(18px + 1cm);
+  padding-bottom: calc(18px + 2cm);
 }
 .modal .inline-actions[style*="sticky"] {
-  padding-bottom: 1cm;
+  padding-bottom: 2cm;
 }
 @media (max-width: 720px) {
   .aurea-assist-dock {
@@ -1464,5 +1464,27 @@ select option { color: #111; }
   }
   .quick-item-editor .grid {
     gap: 10px;
+  }
+}
+
+
+/* AUREA v0.9.5 · zonas claras y margen extra */
+.station-preview-box {
+  margin-top: 10px;
+  padding: 12px;
+  border: 1px dashed color-mix(in srgb, var(--detail) 35%, var(--line));
+  border-radius: 16px;
+  background: rgba(255,255,255,.035);
+}
+.station-preview-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+@media (max-width: 720px) {
+  .client-page,
+  .main.kitchen-main,
+  #staffApp.client-page {
+    padding-bottom: calc(110px + 2cm);
   }
 }

@@ -187,9 +187,39 @@
     return window.location.href;
   }
 
-  function printText(text, options = {}) {
+  function nativePayloadAvailable() {
+    return Boolean(window.__AUREA_POS_NATIVE_PRINT__ && window.AureaPosPrint && typeof window.AureaPosPrint.printPayload === 'function');
+  }
+
+  function buildPrintPayload(text, options = {}) {
     const ticket = cleanText(text);
+    return {
+      text: ticket,
+      logoDataUrl: String(options.logoDataUrl || ''),
+      logoText: cleanText(options.logoText || options.restaurantName || ''),
+      feedDots: Math.max(0, Math.min(320, Number(options.feedDots || 170))),
+      returnUrl: currentReturnUrl(options)
+    };
+  }
+
+  function printPayload(payload = {}, options = {}) {
+    const data = buildPrintPayload(payload.text || '', { ...options, ...payload });
+    if (!data.text) return false;
+    if (nativePayloadAvailable()) {
+      window.AureaPosPrint.printPayload(JSON.stringify(data));
+      return true;
+    }
+    return printText(data.text, data);
+  }
+
+  function printText(text, options = {}) {
+    const data = buildPrintPayload(text, options);
+    const ticket = data.text;
     if (!ticket) return false;
+    if (nativePayloadAvailable()) {
+      window.AureaPosPrint.printPayload(JSON.stringify(data));
+      return true;
+    }
     const encoded = encodeURIComponent(ticket);
     const returnUrl = currentReturnUrl(options);
     const returnPart = returnUrl ? `&returnUrl=${encodeURIComponent(returnUrl)}&autoReturn=1` : '';
@@ -218,6 +248,8 @@
     buildOrderTicketText,
     buildBillTicketText,
     currentReturnUrl,
+    nativePayloadAvailable,
+    printPayload,
     printText,
     printTextIfBridge
   };

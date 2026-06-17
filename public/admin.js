@@ -313,6 +313,47 @@ function kitchenStationsText() {
   return kitchenStations().map(station => station.label || station.id).join('\n');
 }
 
+function previewStationId(label) {
+  return String(label || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '') || 'zona';
+}
+
+function parseKitchenStationsTextPreview() {
+  const value = document.getElementById('kitchenStationsText')?.value || '';
+  const seen = new Set();
+  return value.split(/(?:\n|[|,])+/)
+    .map(label => label.trim())
+    .filter(label => {
+      const key = label.toLowerCase();
+      if (!label || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, 30)
+    .map(label => ({ label, id: previewStationId(label) }));
+}
+
+function renderKitchenStationsPreview() {
+  const box = document.getElementById('kitchenStationsPreview');
+  if (!box) return;
+  const stations = parseKitchenStationsTextPreview();
+  if (!stations.length) {
+    box.innerHTML = '<div class="item-meta">Agrega al menos una zona. Ejemplo: Barra caliente, Bebidas.</div>';
+    return;
+  }
+  box.innerHTML = `
+    <div class="item-meta" style="margin-bottom:8px;">Vista previa para el restaurantero:</div>
+    <div class="station-preview-grid">
+      ${stations.map((station, index) => `<span class="pill">${index + 1}. ${escapeHtml(station.label)}</span>`).join('')}
+    </div>
+    <div class="item-meta" style="margin-top:8px;">AUREA guardará IDs internos automáticamente. El cliente solo verá nombres.</div>
+  `;
+}
+
 function renderKitchenStationOptions(selected = '') {
   const stations = kitchenStations();
   const select = document.getElementById('itemKitchenStation');
@@ -352,6 +393,23 @@ function ticketWidthMm() {
   return value === 80 ? 80 : 58;
 }
 
+
+function printBrandOptions() {
+  const restaurant = db?.restaurant || {};
+  return {
+    restaurantName: restaurant.name || 'AUREA',
+    logoText: restaurant.logoText || restaurant.name || 'AUREA',
+    logoDataUrl: restaurant.logoDataUrl || '',
+    feedDots: 175
+  };
+}
+
+function ticketLogoHtml() {
+  const restaurant = db?.restaurant || {};
+  if (restaurant.logoDataUrl) return `<img class="ticket-logo" src="${restaurant.logoDataUrl}" alt="Logo" />`;
+  return `<div class="brand">${escapeHtml(restaurant.name || 'AUREA')}</div>`;
+}
+
 function ticketBodyWidthMm(width = ticketWidthMm()) {
   return width === 58 ? 48 : 72;
 }
@@ -366,9 +424,9 @@ function ticketPrintStyles(width = ticketWidthMm()) {
     *{box-sizing:border-box}
     html,body{margin:0;padding:0;background:#fff;color:#111}
     body{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Courier New",monospace;width:${bodyWidth}mm;margin:0 auto;font-size:${baseSize}px;line-height:1.28;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-    .ticket{padding:3mm 1mm 4mm}
-    .center{text-align:center}.brand{font-size:${brandSize}px;font-weight:900;letter-spacing:.06em}.muted{color:#555}.line{border-top:1px dashed #222;margin:7px 0}.row{display:flex;justify-content:space-between;gap:6px;align-items:flex-start}.row span:last-child,.row strong:last-child{text-align:right}.item{margin:6px 0;break-inside:avoid}.item strong{font-size:${strongSize}px}.item small{display:block;color:#555;margin-top:2px}.total{font-size:${width === 58 ? 14 : 16}px;font-weight:900}.footer{margin-top:8px;text-align:center;font-size:10px;color:#555}.print-actions{display:grid;gap:8px;margin-top:12px}.print-actions button{width:100%;padding:10px;border:0;border-radius:10px;background:#111;color:#fff;font-weight:800}
-    @media print{.print-actions{display:none!important}body{width:${bodyWidth}mm}.ticket{padding:2mm 0}}
+    .ticket{padding:3mm 1mm 20mm}
+    .center{text-align:center}.ticket-logo{display:block;max-width:28mm;max-height:12mm;object-fit:contain;margin:0 auto 2mm}.brand{font-size:${brandSize}px;font-weight:900;letter-spacing:.06em}.muted{color:#555}.line{border-top:1px dashed #222;margin:7px 0}.row{display:flex;justify-content:space-between;gap:6px;align-items:flex-start}.row span:last-child,.row strong:last-child{text-align:right}.item{margin:6px 0;break-inside:avoid}.item strong{font-size:${strongSize}px}.item small{display:block;color:#555;margin-top:2px}.total{font-size:${width === 58 ? 14 : 16}px;font-weight:900}.footer{margin-top:8px;text-align:center;font-size:10px;color:#555}.print-actions{display:grid;gap:8px;margin-top:12px}.print-actions button{width:100%;padding:10px;border:0;border-radius:10px;background:#111;color:#fff;font-weight:800}
+    @media print{.print-actions{display:none!important}body{width:${bodyWidth}mm}.ticket{padding:2mm 0 20mm}}
   `;
 }
 
@@ -378,7 +436,7 @@ function printHtmlDocument(title, bodyHtml, options = {}) {
   const footer = options.footer || 'Gracias por su preferencia';
   const w = window.open('', '_blank', 'width=380,height=720');
   if (!w) return toast('El navegador bloqueó la ventana de impresión. Permite ventanas emergentes.');
-  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escapeHtml(title)}</title><style>${ticketPrintStyles(width)}</style></head><body><div class="ticket"><div class="center"><div class="brand">${escapeHtml(restaurant)}</div><div class="muted">AUREA by KMO</div></div><div class="line"></div>${bodyHtml}<div class="line"></div><div class="footer">${escapeHtml(footer)}</div><div class="print-actions"><button onclick="window.print()">Imprimir</button><button onclick="window.close()">Cerrar</button></div></div><script>window.addEventListener('load',()=>setTimeout(()=>{window.focus();window.print()},450));<\/script></body></html>`);
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escapeHtml(title)}</title><style>${ticketPrintStyles(width)}</style></head><body><div class="ticket"><div class="center">${ticketLogoHtml()}<div class="muted">AUREA by KMO</div></div><div class="line"></div>${bodyHtml}<div class="line"></div><div class="footer">${escapeHtml(footer)}</div><div class="print-actions"><button onclick="window.print()">Imprimir</button><button onclick="window.close()">Cerrar</button></div></div><script>window.addEventListener('load',()=>setTimeout(()=>{window.focus();window.print()},450));<\/script></body></html>`);
   w.document.close();
 }
 
@@ -400,7 +458,7 @@ function printAdminTestTicket() {
       bridge.line(width),
       bridge.center('Modulo puente activo', width)
     ].join('\n');
-    if (bridge.printTextIfBridge(ticketText)) return;
+    if (bridge.printTextIfBridge(ticketText, printBrandOptions())) return;
   }
   printHtmlDocument('Prueba impresión AUREA', `
     <div class="center"><strong>PRUEBA DE IMPRESIÓN</strong><br><span class="muted">${new Date().toLocaleString('es-MX')}</span></div>
@@ -422,7 +480,7 @@ function printAdminOrderDataBridge(order) {
     showTotal: true,
     footer: 'Comanda administrativa'
   });
-  return bridge.printTextIfBridge(ticketText);
+  return bridge.printTextIfBridge(ticketText, printBrandOptions());
 }
 
 function printAdminOrderTicket(orderId) {
@@ -866,10 +924,18 @@ async function saveStaffZones(staffId) {
 async function saveStaffKitchenZones(staffId) {
   const member = db.staff.find(s => s.id === staffId);
   if (!member) return;
-  const available = kitchenStations().map(station => `${station.id}=${station.label}`).join(', ');
-  const raw = prompt(`IDs de cocina separados por coma. Disponibles: ${available}. Vacío = ve todas.`, (member.kitchenStationIds || []).join(', '));
+  const stations = kitchenStations();
+  const currentIndexes = (member.kitchenStationIds || [])
+    .map(id => stations.findIndex(station => station.id === id) + 1)
+    .filter(index => index > 0)
+    .join(', ');
+  const available = stations.map((station, index) => `${index + 1}) ${station.label}`).join('\n');
+  const raw = prompt(`Selecciona zonas por numero, separadas por coma. Vacío = ve todas.\n\n${available}`, currentIndexes);
   if (raw === null) return;
-  const kitchenStationIds = raw.split(',').map(value => value.trim()).filter(Boolean);
+  const kitchenStationIds = raw.split(',')
+    .map(value => Number(String(value).trim()))
+    .filter(index => Number.isInteger(index) && index >= 1 && index <= stations.length)
+    .map(index => stations[index - 1].id);
   try {
     await api(`/api/admin/staff/${staffId}`, { method: 'PUT', body: JSON.stringify({ kitchenStationIds }) });
     toast('Zonas de cocina actualizadas');
@@ -1037,6 +1103,7 @@ function renderSettings() {
   document.getElementById('assignmentMode').value = db.restaurant.assignmentMode || 'free';
   const kitchenText = document.getElementById('kitchenStationsText');
   if (kitchenText) kitchenText.value = kitchenStationsText();
+  renderKitchenStationsPreview();
   const printSettings = db.restaurant.printSettings || {};
   const autoPrint = document.getElementById('kitchenAutoPrintEnabled');
   if (autoPrint) autoPrint.checked = printSettings.kitchenAutoPrintEnabled !== false;
@@ -1494,6 +1561,8 @@ document.getElementById('restaurantLogoFile').addEventListener('change', async e
   }
 });
 
+document.getElementById('kitchenStationsText')?.addEventListener('input', renderKitchenStationsPreview);
+
 document.getElementById('settingsForm').addEventListener('submit', async event => {
   event.preventDefault();
   try {
@@ -1641,7 +1710,7 @@ checkSession();
 
 
 const AUREA_SUPPORT_WHATSAPP = '526601552214';
-const AUREA_RELEASE_VERSION = '0.9.4';
+const AUREA_RELEASE_VERSION = '0.9.5';
 
 function supportWhatsAppUrl(panel) {
   const restaurant = (typeof staffDb !== 'undefined' && staffDb?.restaurant?.name) || (typeof db !== 'undefined' && db?.restaurant?.name) || (typeof kitchenDb !== 'undefined' && kitchenDb?.restaurant?.name) || 'AUREA';

@@ -82,7 +82,7 @@ function normalizeKitchenStations(value) {
   }
 
   if (!normalized.length) return DEFAULT_KITCHEN_STATIONS.map(item => ({ ...item }));
-  return normalized.slice(0, 8);
+  return normalized.slice(0, 30);
 }
 
 function kitchenStationLabel(value, stations = DEFAULT_KITCHEN_STATIONS) {
@@ -103,7 +103,7 @@ function normalizeStaffKitchenStationIds(value, stations = DEFAULT_KITCHEN_STATI
       seen.add(id);
       return true;
     })
-    .slice(0, 8);
+    .slice(0, 30);
 }
 
 function normalizeMenuModifiers(value) {
@@ -848,7 +848,7 @@ function normalizeOrderLines(db, rawItems) {
       modifierName,
       modifierGroupName: cleanString(item.modifierGroupName || 'Opción', 60) || 'Opción',
       kitchenStation: normalizeKitchenStation(item.kitchenStation || 'hot'),
-      kitchenStationLabel: kitchenStationLabel(item.kitchenStation || 'hot')
+      kitchenStationLabel: kitchenStationLabel(item.kitchenStation || 'hot', db.restaurant.kitchenStations)
     };
     const allocations = parseDinerBreakdown(line.splitAssignments || line.dinerBreakdown || line.allocations || []);
 

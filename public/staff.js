@@ -96,9 +96,20 @@ function statusLabel(status) {
   return labels[status] || status;
 }
 
+function kitchenStations() {
+  const configured = staffDb?.restaurant?.kitchenStations;
+  if (Array.isArray(configured) && configured.length) return configured;
+  return [
+    { id: 'hot', label: 'Barra caliente', icon: '🔥' },
+    { id: 'cold', label: 'Barra fría', icon: '🥗' },
+    { id: 'drinks', label: 'Bebidas', icon: '🥤' }
+  ];
+}
+
 function kitchenStationName(value) {
-  const labels = { hot: '🔥 Barra caliente', cold: '🥗 Barra fría', drinks: '🥤 Bebidas' };
-  return labels[value || 'hot'] || labels.hot;
+  const raw = String(value || 'hot');
+  const station = kitchenStations().find(item => item.id === raw) || kitchenStations()[0] || { id: 'hot', label: 'Barra caliente', icon: '🔥' };
+  return `${station.icon ? `${station.icon} ` : ''}${station.label || station.id}`;
 }
 
 function lineModifierText(item) {
@@ -124,6 +135,23 @@ function ticketWidthMm() {
   return value === 80 ? 80 : 58;
 }
 
+
+function printBrandOptions() {
+  const restaurant = staffDb?.restaurant || {};
+  return {
+    restaurantName: restaurant.name || 'AUREA',
+    logoText: restaurant.logoText || restaurant.name || 'AUREA',
+    logoDataUrl: restaurant.logoDataUrl || '',
+    feedDots: 175
+  };
+}
+
+function ticketLogoHtml() {
+  const restaurant = staffDb?.restaurant || {};
+  if (restaurant.logoDataUrl) return `<img class="ticket-logo" src="${restaurant.logoDataUrl}" alt="Logo" />`;
+  return `<div class="brand">${escapeHtml(restaurant.name || 'AUREA')}</div>`;
+}
+
 function ticketBodyWidthMm(width = ticketWidthMm()) {
   return width === 58 ? 48 : 72;
 }
@@ -138,9 +166,9 @@ function ticketPrintStyles(width = ticketWidthMm()) {
     *{box-sizing:border-box}
     html,body{margin:0;padding:0;background:#fff;color:#111}
     body{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Courier New",monospace;width:${bodyWidth}mm;margin:0 auto;font-size:${baseSize}px;line-height:1.28;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-    .ticket{padding:3mm 1mm 4mm}
-    .center{text-align:center}.brand{font-size:${brandSize}px;font-weight:900;letter-spacing:.06em}.muted{color:#555}.line{border-top:1px dashed #222;margin:7px 0}.row{display:flex;justify-content:space-between;gap:6px;align-items:flex-start}.row span:last-child,.row strong:last-child{text-align:right}.item{margin:6px 0;break-inside:avoid}.item strong{font-size:${strongSize}px}.item small{display:block;color:#555;margin-top:2px}.total{font-size:${width === 58 ? 14 : 16}px;font-weight:900}.footer{margin-top:8px;text-align:center;font-size:10px;color:#555}.print-actions{display:grid;gap:8px;margin-top:12px}.print-actions button{width:100%;padding:10px;border:0;border-radius:10px;background:#111;color:#fff;font-weight:800}
-    @media print{.print-actions{display:none!important}body{width:${bodyWidth}mm}.ticket{padding:2mm 0}}
+    .ticket{padding:3mm 1mm 20mm}
+    .center{text-align:center}.ticket-logo{display:block;max-width:28mm;max-height:12mm;object-fit:contain;margin:0 auto 2mm}.brand{font-size:${brandSize}px;font-weight:900;letter-spacing:.06em}.muted{color:#555}.line{border-top:1px dashed #222;margin:7px 0}.row{display:flex;justify-content:space-between;gap:6px;align-items:flex-start}.row span:last-child,.row strong:last-child{text-align:right}.item{margin:6px 0;break-inside:avoid}.item strong{font-size:${strongSize}px}.item small{display:block;color:#555;margin-top:2px}.total{font-size:${width === 58 ? 14 : 16}px;font-weight:900}.footer{margin-top:8px;text-align:center;font-size:10px;color:#555}.print-actions{display:grid;gap:8px;margin-top:12px}.print-actions button{width:100%;padding:10px;border:0;border-radius:10px;background:#111;color:#fff;font-weight:800}
+    @media print{.print-actions{display:none!important}body{width:${bodyWidth}mm}.ticket{padding:2mm 0 20mm}}
   `;
 }
 
@@ -150,7 +178,7 @@ function printHtmlDocument(title, bodyHtml, options = {}) {
   const footer = options.footer || 'Gracias por su preferencia';
   const w = window.open('', '_blank', 'width=380,height=720');
   if (!w) return toast('El navegador bloqueó la ventana de impresión. Permite ventanas emergentes.');
-  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escapeHtml(title)}</title><style>${ticketPrintStyles(width)}</style></head><body><div class="ticket"><div class="center"><div class="brand">${escapeHtml(restaurant)}</div><div class="muted">AUREA by KMO</div></div><div class="line"></div>${bodyHtml}<div class="line"></div><div class="footer">${escapeHtml(footer)}</div><div class="print-actions"><button onclick="window.print()">Imprimir</button><button onclick="window.close()">Cerrar</button></div></div><script>window.addEventListener('load',()=>setTimeout(()=>{window.focus();window.print()},450));<\/script></body></html>`);
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escapeHtml(title)}</title><style>${ticketPrintStyles(width)}</style></head><body><div class="ticket"><div class="center">${ticketLogoHtml()}<div class="muted">AUREA by KMO</div></div><div class="line"></div>${bodyHtml}<div class="line"></div><div class="footer">${escapeHtml(footer)}</div><div class="print-actions"><button onclick="window.print()">Imprimir</button><button onclick="window.close()">Cerrar</button></div></div><script>window.addEventListener('load',()=>setTimeout(()=>{window.focus();window.print()},450));<\/script></body></html>`);
   w.document.close();
 }
 
@@ -165,7 +193,7 @@ function printStaffOrderDataBridge(order) {
     showTotal: false,
     footer: 'Ticket de cocina'
   });
-  return bridge.printTextIfBridge(ticketText);
+  return bridge.printTextIfBridge(ticketText, printBrandOptions());
 }
 
 function printStaffOrderTicket(orderId) {
@@ -201,7 +229,7 @@ function printStaffBillTicket() {
       ticketWidthMm: ticketWidthMm(),
       footer: 'Gracias por su preferencia'
     });
-    if (bridge.printTextIfBridge(ticketText)) return;
+    if (bridge.printTextIfBridge(ticketText, printBrandOptions())) return;
   }
   const items = lines.map(line => `
     <div class="item"><div class="row"><span>${escapeHtml(line.qty)}× ${escapeHtml(line.name)}</span><strong>${money(line.subtotal)}</strong></div>${line.modifierName ? `<small>${escapeHtml(line.modifierGroupName || 'Opción')}: ${escapeHtml(line.modifierName)}</small>` : ''}${line.note ? `<small>Nota: ${escapeHtml(line.note)}</small>` : ''}${line.dinerName ? `<small>Cuenta: ${escapeHtml(line.dinerName)}</small>` : ''}</div>

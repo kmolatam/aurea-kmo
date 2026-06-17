@@ -479,10 +479,11 @@
               </label>
               <div class="split-box">
                 <h3 style="margin:0;">Zonas de cocina / barras</h3>
-                <p class="muted mini-copy">Una zona por línea. Ejemplo: Barra caliente, Barra fría, Bebidas. Estas zonas se usan para productos, cocineros e impresión automática.</p>
+                <p class="muted mini-copy"><strong>Escribe nombres reales, no IDs.</strong> Una zona por línea. Ejemplo: Barra caliente, Barra fría, Bebidas, Parrilla, Sushi, Postres. AUREA crea el ID interno solo para código.</p>
                 <label>Zonas configuradas
-                  <textarea id="kitchenStationsText" placeholder="Barra caliente&#10;Barra fría&#10;Bebidas"></textarea>
+                  <textarea id="kitchenStationsText" placeholder="Barra caliente&#10;Barra fría&#10;Bebidas&#10;Postres"></textarea>
                 </label>
+                <div id="kitchenStationsPreview" class="station-preview-box"></div>
                 <div class="grid">
                   <label class="col-6 check-row">
                     <input id="kitchenAutoPrintEnabled" type="checkbox" checked />

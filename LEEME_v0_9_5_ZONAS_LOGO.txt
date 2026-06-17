@@ -1,0 +1,30 @@
+AUREA v0.9.5 · Zonas claras + logo en ticket + margen térmico
+
+Cambios clave:
+1. Zonas de cocina para restaurantero:
+   - Admin > Configuración > Zonas de cocina / barras.
+   - Escribe nombres reales, una zona por línea.
+   - Ejemplo: Barra caliente, Bebidas, Barra fría, Parrilla, Sushi, Postres.
+   - AUREA genera IDs internos pero el cliente solo ve nombres.
+   - Límite ampliado a 30 zonas.
+
+2. Productos:
+   - Admin > Menú > Área de preparación.
+   - Cada platillo se asigna a una zona.
+   - Ejemplo: Coca = Bebidas, Aguachile = Barra fría, Tacos = Barra caliente.
+
+3. Empleados de cocina:
+   - Admin > Equipo > Tipo de trabajador = Cocina.
+   - Selecciona las zonas que atiende ese empleado.
+   - Si Juana tiene Barra caliente, solo verá comanda caliente.
+   - Si Pedro tiene Bebidas, solo verá Coca/aguas/bebidas.
+   - Si no seleccionas ninguna zona, verá todas.
+
+4. Tickets:
+   - Tickets web muestran logo del restaurante si está cargado.
+   - Tickets por app Urovo v0.4 intentan imprimir logo; si el SDK no acepta imagen, imprimen nombre/logoTexto.
+   - Se agrega margen/feed extra al final para que no se corte el ticket.
+
+Importante:
+- Para el logo en impresión directa Urovo, instala la APK Áurea POS Urovo v0.4.
+- Si solo actualizas la web, el margen web y nombres de zonas sí cambian, pero la app vieja seguirá sin logo gráfico y con menos feed.
