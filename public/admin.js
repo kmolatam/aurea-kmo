@@ -91,30 +91,39 @@ function applyAccent() {
   document.documentElement.style.setProperty('--detail', color);
 }
 
+function safeRender(name, fn) {
+  try {
+    fn();
+  } catch (error) {
+    console.error(`[AUREA render] ${name}`, error);
+    try { toast(`Error visual en ${name}: ${error.message || error}`); } catch (_) {}
+  }
+}
+
 function renderAll() {
-  renderStats();
-  renderAlerts();
-  renderOrders();
-  renderCommandBoard();
-  renderTeam();
-  renderHistory();
-  renderFinance();
-  renderKitchenStationOptions();
-  renderCategories();
-  renderMenu();
-  renderTables();
-  renderSettings();
-  renderStaff();
+  safeRender('estadísticas', renderStats);
+  safeRender('alertas', renderAlerts);
+  safeRender('pedidos', renderOrders);
+  safeRender('comandas', renderCommandBoard);
+  safeRender('equipo', renderTeam);
+  safeRender('historial', renderHistory);
+  safeRender('finanzas', renderFinance);
+  safeRender('áreas de cocina', renderKitchenStationOptions);
+  safeRender('categorías', renderCategories);
+  safeRender('menú', renderMenu);
+  safeRender('mesas', renderTables);
+  safeRender('configuración', renderSettings);
+  safeRender('staff visible', renderStaff);
 }
 
 function renderLiveData() {
-  renderStats();
-  renderAlerts();
-  renderOrders();
-  renderCommandBoard();
-  renderTeam();
-  renderHistory();
-  renderFinance();
+  safeRender('estadísticas', renderStats);
+  safeRender('alertas', renderAlerts);
+  safeRender('pedidos', renderOrders);
+  safeRender('comandas', renderCommandBoard);
+  safeRender('equipo', renderTeam);
+  safeRender('historial', renderHistory);
+  safeRender('finanzas', renderFinance);
 }
 
 function renderStats() {
@@ -1249,27 +1258,50 @@ function renderSettings() {
 
 function renderStaff() {
   const list = document.getElementById('staffList');
-  const staff = db.staff || [];
+  if (!list) {
+    console.warn('AUREA: no existe #staffList en admin.html');
+    return;
+  }
+  const staff = Array.isArray(db?.staff) ? db.staff : [];
+  list.style.display = 'grid';
+  list.style.gap = '12px';
+  list.dataset.renderedAt = String(Date.now());
+
   if (staff.length === 0) {
     list.innerHTML = '<div class="item"><div>No hay staff agregado todavía.</div></div>';
     return;
   }
-  list.innerHTML = staff.map(member => `
-    <div class="item">
-      <div class="item-main">
-        <div class="item-title">${escapeHtml(member.name)} · ${escapeHtml(member.role || 'Mesero')}</div>
-        <div class="item-meta">WhatsApp: ${escapeHtml(member.whatsapp || 'Sin WhatsApp')} · PIN: ${escapeHtml(member.pin || 'Sin PIN')}</div>
-        <div class="item-meta">Mesas: ${escapeHtml((member.assignedTableIds || []).map(id => (db.tables.find(t => t.id === id)?.name || id)).join(', ') || 'Sin mesas asignadas')}</div>
-        <div class="item-meta">Cocina: ${escapeHtml((member.kitchenStationIds || []).map(kitchenStationName).join(', ') || 'Ve todas las barras')}</div>
-        <div style="margin-top:8px;"><span class="pill">${member.active !== false ? 'Activo' : 'Inactivo'}</span></div>
-      </div>
-      <div class="inline-actions end">
-        <button class="btn small secondary" onclick="saveStaffZones('${member.id}')">Editar mesas</button>
-        <button class="btn small secondary" onclick="saveStaffKitchenZones('${member.id}')">Editar cocina</button>
-        <button class="btn danger small" onclick="deleteStaff('${member.id}')">Eliminar</button>
+
+  const tableName = (id) => (db?.tables || []).find(t => t.id === id)?.name || id;
+  const stationLabel = (id) => {
+    try { return kitchenStationName(id); }
+    catch (_) { return id; }
+  };
+
+  list.innerHTML = `
+    <div class="item" style="border-color:rgba(201,164,76,.55);">
+      <div>
+        <div class="item-title">Staff cargado · ${staff.length}</div>
+        <div class="item-meta">Estos son los PIN y áreas que ya están guardados en la base del restaurante.</div>
       </div>
     </div>
-  `).join('\n');
+    ${staff.map(member => `
+      <div class="item staff-row" data-staff-id="${escapeHtml(member.id || '')}">
+        <div class="item-main">
+          <div class="item-title">${escapeHtml(member.name || 'Sin nombre')} · ${escapeHtml(member.role || 'Mesero')}</div>
+          <div class="item-meta">WhatsApp: ${escapeHtml(member.whatsapp || 'Sin WhatsApp')} · PIN: ${escapeHtml(member.pin || 'Sin PIN')}</div>
+          <div class="item-meta">Mesas: ${escapeHtml((member.assignedTableIds || []).map(tableName).join(', ') || 'Sin mesas asignadas')}</div>
+          <div class="item-meta">Cocina: ${escapeHtml((member.kitchenStationIds || []).map(stationLabel).join(', ') || 'Ve todas las barras')}</div>
+          <div style="margin-top:8px;"><span class="pill">${member.active !== false ? 'Activo' : 'Inactivo'}</span></div>
+        </div>
+        <div class="inline-actions end">
+          <button class="btn small secondary" onclick="saveStaffZones('${member.id}')">Editar mesas</button>
+          <button class="btn small secondary" onclick="saveStaffKitchenZones('${member.id}')">Editar cocina</button>
+          <button class="btn danger small" onclick="deleteStaff('${member.id}')">Eliminar</button>
+        </div>
+      </div>
+    `).join('')}
+  `;
 }
 
 async function updateAlert(id, status) {

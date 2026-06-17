@@ -1,0 +1,6 @@
+AUREA v0.9.12 POS STAFF RENDER FIX
+
+- Mantiene POS ready.
+- Corrige el render visual del staff/meseros en Admin > Configuración.
+- Hace renderAll resistente: si una sección falla, las demás siguen pintándose.
+- No cambia la base de datos. Mantener AUREA_DB_PATH=/data/aurea/lalomita/db.json en Coolify.
