@@ -101,3 +101,11 @@ Agrega ajustes operativos para campo:
 - Más margen inferior en pantallas y modales para que el último pedido no quede pegado abajo.
 - Selector de tipo de trabajador: Mesero, Cocina o Capitán.
 - Mantiene áreas de cocina configurables desde Admin → Configuración y subdivisiones de platillo desde Admin → Menú.
+
+
+## Áreas de cocina visibles v0.9.6
+
+- El panel de Meseros y cocina ahora permite agregar áreas reales desde la misma pantalla.
+- Ya no se muestra el ID técnico `Hot`; se muestra `Barra caliente` o el nombre que ponga el restaurante.
+- Cada trabajador de cocina puede quedar asignado a una o varias áreas.
+- La pantalla `/kitchen.html` filtra comandas por las áreas asignadas al PIN del cocinero.

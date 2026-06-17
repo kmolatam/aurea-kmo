@@ -57,6 +57,20 @@ function titleFromStationId(value) {
     .join(' ') || 'Barra caliente';
 }
 
+function friendlyKitchenStationLabel(id, labelSource = '') {
+  const cleanLabel = cleanString(labelSource, 60);
+  const normalizedId = normalizeKitchenStation(id || cleanLabel || 'hot');
+  const legacyRaw = String(cleanLabel || '').trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const defaultStation = DEFAULT_KITCHEN_STATIONS.find(station => station.id === normalizedId);
+
+  // Corrige instalaciones viejas que guardaron el ID técnico como nombre visible: Hot, Cold, Drinks.
+  if (!cleanLabel || legacyRaw === normalizedId || KITCHEN_STATION_ALIASES[legacyRaw] === normalizedId) {
+    return defaultStation?.label || titleFromStationId(normalizedId);
+  }
+
+  return cleanLabel;
+}
+
 function normalizeKitchenStation(value) {
   const raw = String(value || 'hot').trim().toLowerCase();
   const plain = raw.normalize('NFD').replace(/[̀-ͯ]/g, '');
@@ -74,7 +88,7 @@ function normalizeKitchenStations(value) {
     const labelSource = typeof entry === 'string' ? entry : (entry?.label || entry?.name || '');
     const idSource = typeof entry === 'string' ? '' : (entry?.id || entry?.value || '');
     const id = normalizeKitchenStation(idSource || labelSource);
-    const label = cleanString(labelSource || titleFromStationId(id), 60) || titleFromStationId(id);
+    const label = friendlyKitchenStationLabel(id, labelSource || titleFromStationId(id));
     const icon = cleanString(typeof entry === 'string' ? '' : (entry?.icon || ''), 8);
     if (!id || seen.has(id)) continue;
     seen.add(id);
@@ -89,7 +103,7 @@ function kitchenStationLabel(value, stations = DEFAULT_KITCHEN_STATIONS) {
   const id = normalizeKitchenStation(value);
   const list = normalizeKitchenStations(stations);
   const found = list.find(station => station.id === id);
-  return found?.label || DEFAULT_KITCHEN_STATIONS.find(station => station.id === id)?.label || titleFromStationId(id);
+  return friendlyKitchenStationLabel(id, found?.label || DEFAULT_KITCHEN_STATIONS.find(station => station.id === id)?.label || titleFromStationId(id));
 }
 
 function normalizeStaffKitchenStationIds(value, stations = DEFAULT_KITCHEN_STATIONS) {

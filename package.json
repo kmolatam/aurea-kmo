@@ -1,7 +1,7 @@
 {
   "name": "aurea-by-kmo-mvp",
-  "version": "0.9.4-operativo-restaurante",
-  "description": "AUREA by KMO - impresión Urovo, tickets staff, áreas dinámicas, UX móvil y comandas por zona",
+  "version": "0.9.6-areas-cocina",
+  "description": "AUREA by KMO - áreas de cocina configurables visibles, impresión térmica y compatibilidad Urovo",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"

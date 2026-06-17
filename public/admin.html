@@ -549,10 +549,25 @@
                 </select>
                 <small class="muted">Mesero usa /staff.html. Cocina usa /kitchen.html y puede limitarse a sus áreas.</small>
               </label>
+              <div class="split-box kitchen-area-manager">
+                <div class="section-head compact-head">
+                  <div>
+                    <h3 style="margin:0;">Áreas de cocina</h3>
+                    <p class="muted mini-copy" style="margin:6px 0 0;">Aquí agregas las barras reales del restaurante. Ej. Caliente, Bebidas, Barra fría, Postres, Parrilla.</p>
+                  </div>
+                </div>
+                <div class="inline-actions kitchen-area-add">
+                  <input class="input" id="quickKitchenStationName" placeholder="Ej. Bebidas, Sushi, Parrilla" />
+                  <button class="btn secondary small" type="button" onclick="addQuickKitchenArea()">Agregar área</button>
+                  <button class="btn small" type="button" onclick="saveQuickKitchenAreas()">Guardar áreas</button>
+                </div>
+                <div id="quickKitchenStationsList" class="station-preview-box"></div>
+                <small class="muted">Estas áreas alimentan el menú, la pantalla de cocina y la asignación de cada cocinero.</small>
+              </div>
               <div>
-                <label style="display:block; margin-bottom:8px;">Zonas de cocina asignadas</label>
+                <label style="display:block; margin-bottom:8px;">Áreas asignadas a este trabajador de cocina</label>
                 <div id="staffKitchenStations" class="check-grid"></div>
-                <small class="muted">Para cocineros: si seleccionas una zona, al entrar a /kitchen.html solo verá y podrá imprimir esa barra.</small>
+                <small class="muted">Si seleccionas una o varias áreas, al entrar a /kitchen.html solo verá e imprimirá esas áreas. Si no seleccionas ninguna, verá todas.</small>
               </div>
               <label>WhatsApp del mesero
                 <input class="input" id="staffWhatsapp" placeholder="Ej. 6181234567" />
@@ -624,7 +639,7 @@
   </div>
 
 
-  <script src="/aurea-print-bridge.js?v=0.9.4"></script>
-  <script src="/admin.js?v=0.9.4"></script>
+  <script src="/aurea-print-bridge.js?v=0.9.6"></script>
+  <script src="/admin.js?v=0.9.6"></script>
 </body>
 </html>

@@ -304,13 +304,23 @@ function kitchenStations() {
   ];
 }
 
+function kitchenStationDisplayLabel(station) {
+  const id = String(station?.id || '').toLowerCase();
+  const raw = String(station?.label || '').trim();
+  const plain = raw.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const legacy = { hot: 'Barra caliente', cold: 'Barra fría', drinks: 'Bebidas' };
+  if (!raw || raw.toLowerCase() === id || legacy[plain]) return legacy[id] || raw || id || 'Área';
+  return raw;
+}
+
 function kitchenStationName(value) {
   const station = kitchenStations().find(item => item.id === (value || 'hot')) || kitchenStations()[0] || { id: 'hot', label: 'Barra caliente', icon: '🔥' };
-  return `${station.icon ? `${station.icon} ` : ''}${station.label || station.id}`;
+  const label = kitchenStationDisplayLabel(station);
+  return `${station.icon ? `${station.icon} ` : ''}${label}`;
 }
 
 function kitchenStationsText() {
-  return kitchenStations().map(station => station.label || station.id).join('\n');
+  return kitchenStations().map(station => kitchenStationDisplayLabel(station)).join('\n');
 }
 
 function previewStationId(label) {
@@ -354,11 +364,132 @@ function renderKitchenStationsPreview() {
   `;
 }
 
+
+function renderQuickKitchenAreas() {
+  const box = document.getElementById('quickKitchenStationsList');
+  if (!box) return;
+  const stations = kitchenStations();
+  if (!stations.length) {
+    box.innerHTML = '<div class="item-meta">Sin áreas. Agrega Caliente, Bebidas o las que necesite el restaurante.</div>';
+    return;
+  }
+  box.innerHTML = `
+    <div class="item-meta" style="margin-bottom:8px;">Áreas activas:</div>
+    <div class="station-preview-grid">
+      ${stations.map((station, index) => `
+        <span class="pill station-pill">
+          ${index + 1}. ${escapeHtml(kitchenStationName(station.id))}
+          <button type="button" onclick="removeQuickKitchenArea('${escapeHtml(station.id)}')" aria-label="Quitar ${escapeHtml(kitchenStationDisplayLabel(station))}">×</button>
+        </span>
+      `).join('')}
+    </div>
+    <div class="item-meta" style="margin-top:8px;">Después asigna cada platillo a su área en Menú y cada cocinero aquí mismo.</div>
+  `;
+}
+
+function quickKitchenAreaLabels() {
+  return kitchenStations().map(station => kitchenStationDisplayLabel(station));
+}
+
+function setKitchenAreaLabels(labels) {
+  const cleaned = [];
+  const seen = new Set();
+  for (const label of labels || []) {
+    const clean = String(label || '').trim();
+    const key = clean.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+    if (!clean || seen.has(key)) continue;
+    seen.add(key);
+    cleaned.push(clean);
+  }
+  const text = cleaned.slice(0, 30).join('\n');
+  const kitchenText = document.getElementById('kitchenStationsText');
+  if (kitchenText) kitchenText.value = text;
+  if (db?.restaurant) {
+    db.restaurant.kitchenStations = cleaned.map(label => ({ id: previewStationId(label), label, icon: '' }));
+  }
+  renderKitchenStationsPreview();
+  renderQuickKitchenAreas();
+  renderKitchenStationOptions(document.getElementById('itemKitchenStation')?.value || '');
+}
+
+function addQuickKitchenArea() {
+  const input = document.getElementById('quickKitchenStationName');
+  const label = String(input?.value || '').trim();
+  if (!label) return toast('Escribe el nombre del área. Ej. Bebidas.');
+  const labels = quickKitchenAreaLabels();
+  labels.push(label);
+  setKitchenAreaLabels(labels);
+  if (input) input.value = '';
+  toast('Área agregada. No olvides guardar áreas.');
+}
+
+function removeQuickKitchenArea(id) {
+  const target = String(id || '');
+  const labels = kitchenStations()
+    .filter(station => station.id !== target)
+    .map(station => kitchenStationDisplayLabel(station));
+  if (!labels.length) return toast('Deja al menos un área de cocina.');
+  setKitchenAreaLabels(labels);
+  toast('Área quitada. Guarda para aplicar.');
+}
+
+function restaurantPayloadWithKitchenStations(text) {
+  const restaurant = db?.restaurant || {};
+  const printSettings = restaurant.printSettings || {};
+  const wa = restaurant.whatsappOfficial || {};
+  return {
+    name: restaurant.name || 'AUREA',
+    subtitle: restaurant.subtitle || '',
+    logoText: restaurant.logoText || 'AUREA',
+    whatsapp: restaurant.whatsapp || '',
+    instanceSlug: restaurant.instanceSlug || '',
+    pinPrefix: restaurant.pinPrefix || '',
+    address: restaurant.address || '',
+    hours: restaurant.hours || '',
+    crmOptInText: restaurant.crmOptInText || '',
+    accentColor: restaurant.accentColor || '#c9a44c',
+    operationMode: restaurant.operationMode || 'commands',
+    assignmentMode: restaurant.assignmentMode || 'free',
+    kitchenStations: text,
+    printSettings: {
+      kitchenAutoPrintEnabled: printSettings.kitchenAutoPrintEnabled !== false,
+      ticketWidthMm: printSettings.ticketWidthMm || 58
+    },
+    whatsappOfficial: {
+      enabled: Boolean(wa.enabled),
+      displayName: wa.displayName || restaurant.name || '',
+      businessPortfolioId: wa.businessPortfolioId || '',
+      wabaId: wa.wabaId || '',
+      phoneNumberId: wa.phoneNumberId || '',
+      webhookUrl: wa.webhookUrl || '',
+      notes: wa.notes || '',
+      status: wa.status || 'not_connected'
+    }
+  };
+}
+
+async function saveQuickKitchenAreas() {
+  try {
+    const text = document.getElementById('kitchenStationsText')?.value || quickKitchenAreaLabels().join('\n');
+    await api('/api/admin/restaurant', {
+      method: 'PUT',
+      body: JSON.stringify(restaurantPayloadWithKitchenStations(text))
+    });
+    toast('Áreas de cocina guardadas');
+    await loadData(true);
+  } catch (error) {
+    toast(error.message);
+  }
+}
+
 function renderKitchenStationOptions(selected = '') {
   const stations = kitchenStations();
   const select = document.getElementById('itemKitchenStation');
   if (select) {
-    select.innerHTML = stations.map(station => `<option value="${escapeHtml(station.id)}">${escapeHtml(station.icon ? `${station.icon} ${station.label}` : station.label)}</option>`).join('\n');
+    select.innerHTML = stations.map(station => {
+      const label = kitchenStationDisplayLabel(station);
+      return `<option value="${escapeHtml(station.id)}">${escapeHtml(station.icon ? `${station.icon} ${label}` : label)}</option>`;
+    }).join('\n');
     select.value = stations.some(station => station.id === selected) ? selected : (stations[0]?.id || 'hot');
   }
   const staffStations = document.getElementById('staffKitchenStations');
@@ -366,7 +497,7 @@ function renderKitchenStationOptions(selected = '') {
     staffStations.innerHTML = stations.map(station => `
       <label class="check-pill">
         <input type="checkbox" name="staffKitchenStation" value="${escapeHtml(station.id)}" />
-        <span>${escapeHtml(station.icon ? `${station.icon} ${station.label}` : station.label)}</span>
+        <span>${escapeHtml(station.icon ? `${station.icon} ${kitchenStationDisplayLabel(station)}` : kitchenStationDisplayLabel(station))}</span>
       </label>
     `).join('\n');
   }
@@ -1104,6 +1235,7 @@ function renderSettings() {
   const kitchenText = document.getElementById('kitchenStationsText');
   if (kitchenText) kitchenText.value = kitchenStationsText();
   renderKitchenStationsPreview();
+  renderQuickKitchenAreas();
   const printSettings = db.restaurant.printSettings || {};
   const autoPrint = document.getElementById('kitchenAutoPrintEnabled');
   if (autoPrint) autoPrint.checked = printSettings.kitchenAutoPrintEnabled !== false;
@@ -1561,7 +1693,16 @@ document.getElementById('restaurantLogoFile').addEventListener('change', async e
   }
 });
 
-document.getElementById('kitchenStationsText')?.addEventListener('input', renderKitchenStationsPreview);
+document.getElementById('kitchenStationsText')?.addEventListener('input', () => {
+  renderKitchenStationsPreview();
+  renderQuickKitchenAreas();
+});
+document.getElementById('quickKitchenStationName')?.addEventListener('keydown', event => {
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    addQuickKitchenArea();
+  }
+});
 
 document.getElementById('settingsForm').addEventListener('submit', async event => {
   event.preventDefault();
