@@ -7,7 +7,7 @@ let currentStaffOrderDraft = [];
 let currentStaffCategoryId = '';
 let currentStaffEditingItemId = '';
 let guidedTourState = null;
-const STAFF_JS_VERSION = '0.9.4';
+const STAFF_JS_VERSION = '0.9.11-pos-ready';
 let notificationsBaselineReady = false;
 const seenAlertIds = new Set();
 const seenOrderIds = new Set();
@@ -142,7 +142,7 @@ function printBrandOptions() {
     restaurantName: restaurant.name || 'AUREA',
     logoText: restaurant.logoText || restaurant.name || 'AUREA',
     logoDataUrl: restaurant.logoDataUrl || '',
-    feedDots: 260
+    feedDots: 300
   };
 }
 

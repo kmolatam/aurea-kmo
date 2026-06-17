@@ -201,7 +201,7 @@
       text: ticket,
       logoDataUrl: String(options.logoDataUrl || ''),
       logoText: cleanText(options.logoText || options.restaurantName || ''),
-      feedDots: Math.max(0, Math.min(520, Number(options.feedDots || 260))),
+      feedDots: Math.max(0, Math.min(520, Number(options.feedDots || 300))),
       returnUrl: currentReturnUrl(options)
     };
   }

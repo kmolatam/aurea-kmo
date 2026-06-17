@@ -162,7 +162,7 @@ app.use((req, res, next) => {
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.get('/api/aurea-version', (req, res) => {
-  res.json({ ok: true, version: '0.9.9-admin-rescate-raiz', rescueLogin: process.env.AUREA_DISABLE_RESCUE_LOGIN !== 'true' });
+  res.json({ ok: true, version: '0.9.11-pos-ready-completa', rescueLogin: process.env.AUREA_DISABLE_RESCUE_LOGIN !== 'true' });
 });
 
 app.get('/admin-rescate-1564', (req, res) => {

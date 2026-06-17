@@ -1,0 +1,25 @@
+# Áurea v0.9.11 POS READY COMPLETA
+
+Versión web completa preparada para trabajar dentro de la APK Áurea POS.
+
+Puntos clave:
+- El sistema sigue viviendo en servidor/Coolify.
+- La APK abre el sistema completo con WebView: Admin, Meseros y Cocina.
+- Cuando la app nativa está instalada, el puente `AureaPrintBridge` imprime directo en la terminal Urovo sin Chrome ni ventana de impresión.
+- Mantiene margen/feed inferior aproximado de 3 cm.
+- Mantiene logo del restaurante en tickets si está cargado desde Admin.
+
+MUY IMPORTANTE PARA NO PERDER DATOS:
+En Coolify deja fija la variable:
+
+AUREA_DB_PATH=/data/aurea/lalomita/db.json
+
+No uses /app/data/db.json como base principal en producción porque se puede resetear al desplegar.
+
+Orden recomendado:
+1. Backup.
+2. Subir esta versión completa al repo.
+3. Verificar Environment Variable AUREA_DB_PATH.
+4. Redeploy.
+5. Abrir /api/aurea-version y confirmar 0.9.11-pos-ready-completa.
+6. Instalar/actualizar APK Áurea POS v0.6 en Urovo.

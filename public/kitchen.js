@@ -112,7 +112,7 @@ function printBrandOptions() {
     restaurantName: restaurant.name || 'AUREA',
     logoText: restaurant.logoText || restaurant.name || 'AUREA',
     logoDataUrl: restaurant.logoDataUrl || '',
-    feedDots: 260
+    feedDots: 300
   };
 }
 

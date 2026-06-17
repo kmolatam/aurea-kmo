@@ -5,7 +5,7 @@ let tablesSignature = '';
 let crmFilter = 'all';
 let pendingLogoDataUrl = undefined;
 const qrCache = new Map();
-const ADMIN_JS_VERSION = '0.9.4';
+const ADMIN_JS_VERSION = '0.9.11-pos-ready';
 
 function money(value) {
   return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(value || 0);
@@ -518,7 +518,7 @@ function printBrandOptions() {
     restaurantName: restaurant.name || 'AUREA',
     logoText: restaurant.logoText || restaurant.name || 'AUREA',
     logoDataUrl: restaurant.logoDataUrl || '',
-    feedDots: 260
+    feedDots: 300
   };
 }
 
