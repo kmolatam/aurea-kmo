@@ -1,6 +1,6 @@
 {
   "name": "aurea-by-kmo-mvp",
-  "version": "0.9.2-urovo-bridge",
+  "version": "0.9.3-urovo-return-bridge",
   "description": "AUREA by KMO - impresión térmica web y puente Áurea Print para Urovo i9100",
   "main": "server.js",
   "scripts": {

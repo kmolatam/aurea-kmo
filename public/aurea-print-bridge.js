@@ -181,11 +181,19 @@
     return cleanText(lines.join('\n'));
   }
 
+  function currentReturnUrl(options = {}) {
+    if (options.returnUrl === false) return '';
+    if (typeof options.returnUrl === 'string' && options.returnUrl.trim()) return options.returnUrl.trim();
+    return window.location.href;
+  }
+
   function printText(text, options = {}) {
     const ticket = cleanText(text);
     if (!ticket) return false;
     const encoded = encodeURIComponent(ticket);
-    const intentUrl = `intent://print?text=${encoded}#Intent;scheme=${BRIDGE_SCHEME};package=${BRIDGE_PACKAGE};end`;
+    const returnUrl = currentReturnUrl(options);
+    const returnPart = returnUrl ? `&returnUrl=${encodeURIComponent(returnUrl)}&autoReturn=1` : '';
+    const intentUrl = `intent://print?text=${encoded}${returnPart}#Intent;scheme=${BRIDGE_SCHEME};package=${BRIDGE_PACKAGE};end`;
     window.location.href = intentUrl;
     return true;
   }
@@ -209,6 +217,7 @@
     charsForWidth,
     buildOrderTicketText,
     buildBillTicketText,
+    currentReturnUrl,
     printText,
     printTextIfBridge
   };

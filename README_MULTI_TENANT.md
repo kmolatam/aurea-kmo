@@ -148,3 +148,10 @@ Modo manual opcional en consola del navegador:
 - Forzar puente: `AureaPrintBridge.setMode('bridge')`
 - Forzar web print: `AureaPrintBridge.setMode('web')`
 - Automático: `AureaPrintBridge.setMode('auto')`
+
+
+## Urovo Bridge v0.9.3 · regreso automático
+
+- El puente web ahora manda `returnUrl` a la app `Áurea Print`.
+- Después de imprimir, la app actualizada puede regresar automáticamente a la página de AUREA donde estaba el usuario.
+- Requiere instalar `Áurea Print v0.2` o superior en el Urovo.
