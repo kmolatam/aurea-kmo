@@ -1,0 +1,26 @@
+AUREA v0.9.2 · Urovo Bridge
+
+QUE CAMBIO:
+- Se agregó public/aurea-print-bridge.js.
+- Admin, Staff y Cocina ya cargan el puente antes de sus JS.
+- En Android/Urovo, los tickets usan Áurea Print automáticamente.
+- En PC o equipos no Android, se mantiene impresión web con window.print().
+- Al enviar comanda desde Staff, AUREA intenta imprimirla automáticamente en el Urovo.
+- Cocina: “Probar ticket”, “Imprimir” e “Imprimir pendientes” usan el puente en Urovo.
+- Admin: “Probar ticket web”, “Imprimir” y comanda manual usan el puente en Urovo.
+
+COMO SUBIRLO:
+1. Sube todo este contenido a tu repo, respetando la carpeta public/.
+2. Haz commit y push:
+   git add .
+   git commit -m "Conecta impresion Urovo con Aurea Print"
+   git push origin main
+3. En Coolify dale Redeploy si no se despliega solo.
+4. En el Urovo abre Chrome > AUREA > staff.html o kitchen.html.
+5. Crea una comanda o pica “Probar ticket”.
+
+IMPORTANTE:
+- La APK Áurea Print debe estar instalada en el Urovo.
+- Si quieres forzar puente desde consola del navegador: AureaPrintBridge.setMode('bridge')
+- Si quieres forzar impresión web: AureaPrintBridge.setMode('web')
+- Automático: AureaPrintBridge.setMode('auto')
