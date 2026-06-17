@@ -9,23 +9,101 @@ const PORT = process.env.PORT || 3000;
 const DB_PATH = path.resolve(process.env.AUREA_DB_PATH || path.join(__dirname, 'data', 'db.json'));
 fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
 
-const KITCHEN_STATIONS = ['hot', 'cold', 'drinks'];
-const KITCHEN_STATION_LABELS = {
-  hot: 'Barra caliente',
-  cold: 'Barra fría',
-  drinks: 'Bebidas'
+const DEFAULT_KITCHEN_STATIONS = [
+  { id: 'hot', label: 'Barra caliente', icon: '🔥' },
+  { id: 'cold', label: 'Barra fría', icon: '🥗' },
+  { id: 'drinks', label: 'Bebidas', icon: '🥤' }
+];
+
+const KITCHEN_STATION_ALIASES = {
+  caliente: 'hot',
+  'barra_caliente': 'hot',
+  'barra-caliente': 'hot',
+  'barra caliente': 'hot',
+  hot: 'hot',
+  kitchen: 'hot',
+  cocina: 'hot',
+  fria: 'cold',
+  fría: 'cold',
+  'barra_fria': 'cold',
+  'barra-fria': 'cold',
+  'barra fría': 'cold',
+  'barra fria': 'cold',
+  cold: 'cold',
+  bebida: 'drinks',
+  bebidas: 'drinks',
+  bar: 'drinks',
+  drinks: 'drinks',
+  'barra_bebidas': 'drinks',
+  'barra-bebidas': 'drinks'
 };
 
-function normalizeKitchenStation(value) {
-  const raw = cleanString(value || 'hot', 40).toLowerCase();
-  if (['caliente', 'barra_caliente', 'barra caliente', 'hot', 'kitchen', 'cocina'].includes(raw)) return 'hot';
-  if (['fria', 'fría', 'barra_fria', 'barra fría', 'barra fria', 'cold'].includes(raw)) return 'cold';
-  if (['bebida', 'bebidas', 'bar', 'drinks', 'barra_bebidas'].includes(raw)) return 'drinks';
-  return KITCHEN_STATIONS.includes(raw) ? raw : 'hot';
+function stationSlug(value) {
+  const clean = String(value || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40);
+  return clean || 'hot';
 }
 
-function kitchenStationLabel(value) {
-  return KITCHEN_STATION_LABELS[normalizeKitchenStation(value)] || KITCHEN_STATION_LABELS.hot;
+function titleFromStationId(value) {
+  return stationSlug(value)
+    .split('-')
+    .filter(Boolean)
+    .map(part => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
+    .join(' ') || 'Barra caliente';
+}
+
+function normalizeKitchenStation(value) {
+  const raw = String(value || 'hot').trim().toLowerCase();
+  const plain = raw.normalize('NFD').replace(/[̀-ͯ]/g, '');
+  return KITCHEN_STATION_ALIASES[raw] || KITCHEN_STATION_ALIASES[plain] || stationSlug(raw);
+}
+
+function normalizeKitchenStations(value) {
+  const source = Array.isArray(value)
+    ? value
+    : String(value || '').split(/\n|[|,]+/).map(label => ({ label }));
+  const normalized = [];
+  const seen = new Set();
+
+  for (const entry of source) {
+    const labelSource = typeof entry === 'string' ? entry : (entry?.label || entry?.name || '');
+    const idSource = typeof entry === 'string' ? '' : (entry?.id || entry?.value || '');
+    const id = normalizeKitchenStation(idSource || labelSource);
+    const label = cleanString(labelSource || titleFromStationId(id), 60) || titleFromStationId(id);
+    const icon = cleanString(typeof entry === 'string' ? '' : (entry?.icon || ''), 8);
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    normalized.push({ id, label, icon });
+  }
+
+  if (!normalized.length) return DEFAULT_KITCHEN_STATIONS.map(item => ({ ...item }));
+  return normalized.slice(0, 8);
+}
+
+function kitchenStationLabel(value, stations = DEFAULT_KITCHEN_STATIONS) {
+  const id = normalizeKitchenStation(value);
+  const list = normalizeKitchenStations(stations);
+  const found = list.find(station => station.id === id);
+  return found?.label || DEFAULT_KITCHEN_STATIONS.find(station => station.id === id)?.label || titleFromStationId(id);
+}
+
+function normalizeStaffKitchenStationIds(value, stations = DEFAULT_KITCHEN_STATIONS) {
+  const allowed = new Set(normalizeKitchenStations(stations).map(station => station.id));
+  const raw = Array.isArray(value) ? value : String(value || '').split(/\n|[|,]+/);
+  const seen = new Set();
+  return raw
+    .map(item => normalizeKitchenStation(typeof item === 'string' ? item : (item?.id || item?.value || item?.label || '')))
+    .filter(id => {
+      if (!id || !allowed.has(id) || seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    })
+    .slice(0, 8);
 }
 
 function normalizeMenuModifiers(value) {
@@ -89,6 +167,12 @@ function ensureDbShape(db) {
   db.restaurant.crmEnabled = Boolean(db.restaurant.crmEnabled);
   db.restaurant.pinPrefix = restaurantPinPrefix(db);
   db.restaurant.assignmentMode = db.restaurant.assignmentMode || 'free';
+  db.restaurant.kitchenStations = normalizeKitchenStations(db.restaurant.kitchenStations);
+  db.restaurant.printSettings = db.restaurant.printSettings || {};
+  db.restaurant.printSettings = {
+    kitchenAutoPrintEnabled: db.restaurant.printSettings.kitchenAutoPrintEnabled !== false,
+    ticketWidthMm: Math.max(58, Math.min(80, Number(db.restaurant.printSettings.ticketWidthMm || 80)))
+  };
   db.restaurant.instanceSlug = cleanSlug(db.restaurant.instanceSlug || db.restaurant.name || 'aurea-demo');
   db.restaurant.whatsappOfficial = db.restaurant.whatsappOfficial || {};
   db.restaurant.whatsappOfficial = {
@@ -113,6 +197,7 @@ function ensureDbShape(db) {
       price: Number(product.price || 0),
       imageUrl: product.imageUrl || product.image || '',
       kitchenStation: normalizeKitchenStation(product.kitchenStation || product.station || product.kitchenArea || 'hot'),
+      kitchenStationLabel: kitchenStationLabel(product.kitchenStation || product.station || product.kitchenArea || 'hot', db.restaurant.kitchenStations),
       modifierGroupName: cleanString(product.modifierGroupName || product.optionGroupName || 'Opción', 60) || 'Opción',
       modifiers: normalizeMenuModifiers(product.modifiers || product.options || product.variants || ''),
       available: product.available !== false && product.active !== false && product.isAvailable !== false,
@@ -123,7 +208,7 @@ function ensureDbShape(db) {
     ...item,
     price: Number(item.price || 0),
     kitchenStation: normalizeKitchenStation(item.kitchenStation || item.station || item.kitchenArea || 'hot'),
-    kitchenStationLabel: kitchenStationLabel(item.kitchenStation || item.station || item.kitchenArea || 'hot'),
+    kitchenStationLabel: kitchenStationLabel(item.kitchenStation || item.station || item.kitchenArea || 'hot', db.restaurant.kitchenStations),
     modifierGroupName: cleanString(item.modifierGroupName || item.optionGroupName || 'Opción', 60) || 'Opción',
     modifiers: normalizeMenuModifiers(item.modifiers || item.options || item.variants || ''),
     available: item.available !== false && item.active !== false && item.isAvailable !== false,
@@ -194,6 +279,7 @@ function ensureDbShape(db) {
   });
   db.staff.forEach(member => {
     member.assignedTableIds = Array.isArray(member.assignedTableIds) ? member.assignedTableIds : [];
+    member.kitchenStationIds = normalizeStaffKitchenStationIds(member.kitchenStationIds || member.kitchenStations || member.kitchenStation || [], db.restaurant.kitchenStations);
     member.stats = member.stats || {};
     member.pin = normalizeStaffPin(db, member.pin) || member.pin || '';
   });
@@ -207,7 +293,13 @@ function ensureDbShape(db) {
     order.deliveredAt = order.deliveredAt || '';
     order.assignedStaffId = order.assignedStaffId || '';
     order.assignedStaffName = order.assignedStaffName || '';
-    for (const item of order.items || []) item.dinerName = cleanDinerName(item.dinerName || item.personName || '');
+    for (const item of order.items || []) {
+      item.dinerName = cleanDinerName(item.dinerName || item.personName || '');
+      item.kitchenStation = normalizeKitchenStation(item.kitchenStation || 'hot');
+      item.kitchenStationLabel = kitchenStationLabel(item.kitchenStation || 'hot', db.restaurant.kitchenStations);
+      item.modifierName = cleanModifierName(item.modifierName || item.optionName || '');
+      item.modifierGroupName = cleanString(item.modifierGroupName || 'Opción', 60) || 'Opción';
+    }
     order.updatedAt = order.updatedAt || order.createdAt || nowIso();
   });
   db.counters = db.counters || {};
@@ -473,7 +565,7 @@ function buildBillSummary(db, tableId) {
         modifierName: cleanModifierName(item.modifierName || item.optionName || ''),
         modifierGroupName: cleanString(item.modifierGroupName || 'Opción', 60) || 'Opción',
         kitchenStation: normalizeKitchenStation(item.kitchenStation || 'hot'),
-        kitchenStationLabel: kitchenStationLabel(item.kitchenStation || 'hot'),
+        kitchenStationLabel: kitchenStationLabel(item.kitchenStation || 'hot', db.restaurant.kitchenStations),
         dinerName: cleanDinerName(item.dinerName || item.personName || ''),
         subtotal: roundMoney(item.subtotal !== undefined ? item.subtotal : Number(item.price || 0) * Number(item.qty || 0))
       });
@@ -1119,7 +1211,7 @@ function computeStaffStats(db) {
 }
 
 app.get('/health', (req, res) => {
-  res.json({ ok: true, product: 'AUREA by KMO', version: '0.8.8-staff-ux' });
+  res.json({ ok: true, product: 'AUREA by KMO', version: '0.9.0-kitchen-autoprint' });
 });
 
 app.get('/t/:tableId', (req, res) => {
@@ -1240,7 +1332,7 @@ app.post('/api/staff/logout', (req, res) => {
 app.get('/api/staff/session', (req, res) => {
   const db = readDb();
   const staff = req.session?.staffId ? db.staff.find(member => member.id === req.session.staffId) : null;
-  res.json({ ok: true, isStaff: Boolean(staff), staff: staff ? { id: staff.id, name: staff.name, role: staff.role } : null });
+  res.json({ ok: true, isStaff: Boolean(staff), staff: staff ? { id: staff.id, name: staff.name, role: staff.role, kitchenStationIds: staff.kitchenStationIds || [] } : null });
 });
 
 app.get('/api/staff/data', requireStaff, (req, res) => {
@@ -1249,7 +1341,7 @@ app.get('/api/staff/data', requireStaff, (req, res) => {
   res.json({
     ok: true,
     restaurant: db.restaurant,
-    staff: staff ? { id: staff.id, name: staff.name, role: staff.role, whatsapp: staff.whatsapp } : null,
+    staff: staff ? { id: staff.id, name: staff.name, role: staff.role, whatsapp: staff.whatsapp, kitchenStationIds: staff.kitchenStationIds || [] } : null,
     alerts: db.alerts,
     orders: db.orders,
     feedback: db.feedback || [],
@@ -1964,6 +2056,11 @@ app.put('/api/admin/restaurant', requireLogin, (req, res) => {
     crmEnabled: req.body.crmEnabled === true || req.body.crmEnabled === 'true',
     instanceSlug: cleanSlug(req.body.instanceSlug || db.restaurant.instanceSlug || db.restaurant.name || 'aurea-demo'),
     pinPrefix: cleanString(req.body.pinPrefix || db.restaurant.pinPrefix || restaurantPinPrefix(db), 6).toUpperCase().replace(/[^A-Z0-9]/g, '') || restaurantPinPrefix(db),
+    kitchenStations: req.body.kitchenStations !== undefined ? normalizeKitchenStations(req.body.kitchenStations) : normalizeKitchenStations(db.restaurant.kitchenStations),
+    printSettings: {
+      kitchenAutoPrintEnabled: req.body.printSettings?.kitchenAutoPrintEnabled !== false && req.body.printSettings?.kitchenAutoPrintEnabled !== 'false',
+      ticketWidthMm: Math.max(58, Math.min(80, Number(req.body.printSettings?.ticketWidthMm || db.restaurant.printSettings?.ticketWidthMm || 80)))
+    },
     whatsappOfficial: {
       enabled: req.body.whatsappOfficial?.enabled === true || req.body.whatsappOfficial?.enabled === 'true',
       displayName: cleanString(req.body.whatsappOfficial?.displayName || db.restaurant.name || '', 100),
@@ -2024,7 +2121,7 @@ app.post('/api/admin/menu-items', requireLogin, (req, res) => {
     price: Number(req.body.price || 0),
     imageUrl: cleanString(req.body.imageUrl, 500),
     kitchenStation: normalizeKitchenStation(req.body.kitchenStation || 'hot'),
-    kitchenStationLabel: kitchenStationLabel(req.body.kitchenStation || 'hot'),
+    kitchenStationLabel: kitchenStationLabel(req.body.kitchenStation || 'hot', db.restaurant.kitchenStations),
     modifierGroupName: cleanString(req.body.modifierGroupName || 'Opción', 60) || 'Opción',
     modifiers: normalizeMenuModifiers(req.body.modifiers),
     available: req.body.available !== false && req.body.available !== 'false',
@@ -2052,7 +2149,7 @@ app.put('/api/admin/menu-items/:id', requireLogin, (req, res) => {
     price: req.body.price !== undefined ? Number(req.body.price || 0) : current.price,
     imageUrl: req.body.imageUrl !== undefined ? cleanString(req.body.imageUrl, 500) : current.imageUrl,
     kitchenStation: req.body.kitchenStation !== undefined ? normalizeKitchenStation(req.body.kitchenStation) : normalizeKitchenStation(current.kitchenStation || 'hot'),
-    kitchenStationLabel: req.body.kitchenStation !== undefined ? kitchenStationLabel(req.body.kitchenStation) : kitchenStationLabel(current.kitchenStation || 'hot'),
+    kitchenStationLabel: req.body.kitchenStation !== undefined ? kitchenStationLabel(req.body.kitchenStation, db.restaurant.kitchenStations) : kitchenStationLabel(current.kitchenStation || 'hot', db.restaurant.kitchenStations),
     modifierGroupName: req.body.modifierGroupName !== undefined ? (cleanString(req.body.modifierGroupName || 'Opción', 60) || 'Opción') : (current.modifierGroupName || 'Opción'),
     modifiers: req.body.modifiers !== undefined ? normalizeMenuModifiers(req.body.modifiers) : normalizeMenuModifiers(current.modifiers || ''),
     available: req.body.available !== undefined ? Boolean(req.body.available) : current.available,
@@ -2096,6 +2193,7 @@ app.post('/api/admin/staff', requireLogin, (req, res) => {
     pin,
     active: req.body.active !== false,
     assignedTableIds: Array.isArray(req.body.assignedTableIds) ? req.body.assignedTableIds.map(id => cleanString(id, 80)).filter(Boolean) : [],
+    kitchenStationIds: normalizeStaffKitchenStationIds(req.body.kitchenStationIds || [], db.restaurant.kitchenStations),
     createdAt: nowIso()
   };
   if (!staff.name) return res.status(400).json({ ok: false, message: 'Nombre del mesero requerido' });
@@ -2120,7 +2218,8 @@ app.put('/api/admin/staff/:id', requireLogin, (req, res) => {
     whatsapp: req.body.whatsapp !== undefined ? normalizePhone(req.body.whatsapp) : db.staff[index].whatsapp,
     pin: nextPin,
     active: req.body.active !== undefined ? Boolean(req.body.active) : db.staff[index].active,
-    assignedTableIds: req.body.assignedTableIds !== undefined && Array.isArray(req.body.assignedTableIds) ? req.body.assignedTableIds.map(id => cleanString(id, 80)).filter(Boolean) : (db.staff[index].assignedTableIds || [])
+    assignedTableIds: req.body.assignedTableIds !== undefined && Array.isArray(req.body.assignedTableIds) ? req.body.assignedTableIds.map(id => cleanString(id, 80)).filter(Boolean) : (db.staff[index].assignedTableIds || []),
+    kitchenStationIds: req.body.kitchenStationIds !== undefined ? normalizeStaffKitchenStationIds(req.body.kitchenStationIds || [], db.restaurant.kitchenStations) : normalizeStaffKitchenStationIds(db.staff[index].kitchenStationIds || [], db.restaurant.kitchenStations)
   };
   writeDb(db);
   res.json({ ok: true, staff: db.staff[index] });
@@ -2435,6 +2534,6 @@ app.patch('/api/admin/orders/:id', requireLogin, (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`AUREA by KMO v0.8.9-lalomita corriendo en http://localhost:${PORT}`);
+  console.log(`AUREA by KMO v0.9.0-lalomita corriendo en http://localhost:${PORT}`);
   console.log(`Admin demo: usuario ${ADMIN_USER} / contraseña ${ADMIN_PASS}`);
 });

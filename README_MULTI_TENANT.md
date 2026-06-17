@@ -91,3 +91,16 @@ Agrega:
 
 Nota impresión:
 - Funciona como impresión web/print service del navegador. Si el equipo Android POS expone la impresora al navegador o al servicio de impresión, puede imprimir directo. Si la impresora integrada está cerrada por SDK privado, se requerirá adaptador específico del fabricante.
+
+## Cocina por zonas e impresión automática v0.9.0
+
+Agrega:
+- Zonas de cocina editables desde Configuración.
+- Productos asignados a una zona de preparación.
+- Staff/cocineros asignados a una o varias zonas de cocina.
+- Pantalla de cocina filtrada por las zonas del cocinero que inició sesión.
+- Auto impresión local desde `/kitchen.html`: al activar “Auto imprimir”, las próximas comandas de esa zona se mandan a ticket térmico.
+- Botón “Imprimir pendientes” para sacar papel manualmente sin tocar cada comanda.
+
+Nota operativa:
+- La autoimpresión web usa el navegador del dispositivo de cocina. Para impresión sin diálogo se recomienda configurar el dispositivo en modo kiosk / impresión directa o dejar la impresora térmica como predeterminada.

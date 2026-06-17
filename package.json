@@ -1,7 +1,7 @@
 {
   "name": "aurea-by-kmo-mvp",
-  "version": "0.8.9-lalomita-hotfix",
-  "description": "AUREA by KMO - hotfix comanda sin duplicado, barras de cocina, modificadores, cancelación e impresión térmica básica",
+  "version": "0.9.0-kitchen-autoprint",
+  "description": "AUREA by KMO - cocina por zonas, cocineros por barra e impresión automática térmica",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
