@@ -1090,7 +1090,7 @@ select option { color: #111; }
   }
 }
 
-/* AUREA v0.8.8 staff UX / help / guided tour */
+/* AUREA v0.9.0 staff UX / help / guided tour */
 .aurea-assist-dock {
   position: fixed;
   right: 14px;
@@ -1350,4 +1350,56 @@ select option { color: #111; }
   .menu-pick-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+}
+
+/* AUREA v0.9.0 · barras, modificadores e impresión */
+.form-label {
+  color: var(--muted);
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+.modifier-picker {
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(255,255,255,.035);
+}
+.menu-modifier-picker {
+  margin-top: 10px;
+}
+.choice-grid.modifier-choice-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.choice-check {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 8px 10px;
+  background: rgba(255,255,255,.05);
+  color: var(--text);
+  cursor: pointer;
+}
+.choice-check input {
+  margin: 0;
+}
+.choice-check.active {
+  background: color-mix(in srgb, var(--detail) 22%, transparent);
+  border-color: color-mix(in srgb, var(--detail) 55%, transparent);
+  color: var(--gold-2);
+}
+.station-column h2 {
+  margin-bottom: 4px;
+}
+.station-ticket {
+  border-color: color-mix(in srgb, var(--detail) 28%, var(--line));
+}
+.btn.tiny {
+  padding: 6px 8px;
+  border-radius: 10px;
+  font-size: 12px;
 }

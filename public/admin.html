@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>AUREA Admin · La Lomita</title>
-  <link rel="stylesheet" href="/style.css?v=0.8.7" />
+  <link rel="stylesheet" href="/style.css?v=0.9.1" />
 </head>
 <body>
   <div id="toast" class="toast"></div>
@@ -253,8 +253,19 @@
               <label>Precio
                 <input class="input" id="itemPrice" type="number" min="1" step="1" placeholder="165" />
               </label>
+              <label>Área de preparación
+                <select id="itemKitchenStation"></select>
+                <small class="muted">Esta área decide a qué pantalla/impresora de cocina se manda la comanda.</small>
+              </label>
               <label>URL de imagen opcional
                 <input class="input" id="itemImageUrl" placeholder="https://..." />
+              </label>
+              <label>Subdivisión de selección única opcional
+                <input class="input" id="itemModifierGroupName" placeholder="Ej. Salsa / Término / Guarnición" />
+              </label>
+              <label>Opciones de esa subdivisión
+                <textarea id="itemModifiers" placeholder="Ej. Salsa verde&#10;Salsa roja&#10;Salsa negra"></textarea>
+                <small class="muted">Una opción por línea. En mesa y mesero sale como selección única.</small>
               </label>
               <label class="check-row">
                 <input id="itemAvailable" type="checkbox" checked />
@@ -466,6 +477,29 @@
                   <option value="zone">Asignación por zona</option>
                 </select>
               </label>
+              <div class="split-box">
+                <h3 style="margin:0;">Zonas de cocina / barras</h3>
+                <p class="muted mini-copy">Una zona por línea. Ejemplo: Barra caliente, Barra fría, Bebidas. Estas zonas se usan para productos, cocineros e impresión automática.</p>
+                <label>Zonas configuradas
+                  <textarea id="kitchenStationsText" placeholder="Barra caliente&#10;Barra fría&#10;Bebidas"></textarea>
+                </label>
+                <div class="grid">
+                  <label class="col-6 check-row">
+                    <input id="kitchenAutoPrintEnabled" type="checkbox" checked />
+                    <span>Permitir autoimpresión en cocina</span>
+                  </label>
+                  <label class="col-6">Ancho de ticket
+                    <select id="ticketWidthMm">
+                      <option value="58">58 mm · Urovo / portátil</option>
+                      <option value="80">80 mm · Cocina profesional</option>
+                    </select>
+                  </label>
+                </div>
+                <div class="inline-actions" style="margin-top:12px;">
+                  <button class="btn secondary small" type="button" onclick="printAdminTestTicket()">Probar ticket web</button>
+                  <span class="muted mini-copy">Para Urovo i9100 usa 58 mm y prueba desde Chrome del equipo.</span>
+                </div>
+              </div>
               <label>Prefijo de PIN para meseros
                 <input class="input" id="restaurantPinPrefix" maxlength="6" placeholder="Ej. LL" />
               </label>
@@ -509,6 +543,11 @@
               <label>Rol
                 <input class="input" id="staffRole" placeholder="Ej. Mesero / Cocina / Capitán" value="Mesero" />
               </label>
+              <div>
+                <label style="display:block; margin-bottom:8px;">Zonas de cocina asignadas</label>
+                <div id="staffKitchenStations" class="check-grid"></div>
+                <small class="muted">Para cocineros: si seleccionas una zona, al entrar a /kitchen.html solo verá y podrá imprimir esa barra.</small>
+              </div>
               <label>WhatsApp del mesero
                 <input class="input" id="staffWhatsapp" placeholder="Ej. 6181234567" />
               </label>
@@ -579,6 +618,6 @@
   </div>
 
 
-  <script src="/admin.js?v=0.8.7"></script>
+  <script src="/admin.js?v=0.9.1"></script>
 </body>
 </html>

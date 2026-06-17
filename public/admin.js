@@ -5,6 +5,7 @@ let tablesSignature = '';
 let crmFilter = 'all';
 let pendingLogoDataUrl = undefined;
 const qrCache = new Map();
+const ADMIN_JS_VERSION = '0.9.1';
 
 function money(value) {
   return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(value || 0);
@@ -98,6 +99,7 @@ function renderAll() {
   renderTeam();
   renderHistory();
   renderFinance();
+  renderKitchenStationOptions();
   renderCategories();
   renderMenu();
   renderTables();
@@ -175,7 +177,7 @@ function orderCard(order, compact = false) {
         <div class="item-title">#${escapeHtml(order.commandNumber || '-')} · ${escapeHtml(order.tableName)} · ${money(order.total)}</div>
         <div class="item-meta">${dateTime(order.createdAt)} · ${escapeHtml(statusLabel(order.status))}${order.estimatedTime ? ` · Estimado: ${escapeHtml(order.estimatedTime)}` : ''}</div>
         <div style="margin-top:10px; display:grid; gap:4px;">
-          ${order.items.map(item => `<div>${item.qty} × ${escapeHtml(item.name)} <span class="item-meta">${money(item.subtotal)}</span>${item.note ? `<div class="item-meta">Nota: ${escapeHtml(item.note)}</div>` : ''}</div>`).join('')}
+          ${order.items.map(item => `<div>${item.qty} × ${escapeHtml(item.name)}${item.modifierName ? ` · <strong>${escapeHtml(item.modifierName)}</strong>` : ''} <span class="item-meta">${money(item.subtotal)}</span>${item.note ? `<div class="item-meta">Nota: ${escapeHtml(item.note)}</div>` : ''}</div>`).join('\n')}
         </div>
         ${order.note ? `<div class="item-meta" style="margin-top:8px;">Nota general: ${escapeHtml(order.note)}</div>` : ''}
         ${order.customerName || order.customerPhone ? `<div class="item-meta" style="margin-top:8px;">Cliente: ${escapeHtml(order.customerName || 'Sin nombre')} ${escapeHtml(order.customerPhone || '')}</div>` : ''}
@@ -184,6 +186,7 @@ function orderCard(order, compact = false) {
       </div>
       <div class="inline-actions end">
         ${order.status !== 'new' ? `<button class="btn small secondary" onclick="updateOrder('${order.id}', 'confirmed')">Confirmar</button>` : ''}
+        <button class="btn small ghost" onclick="printAdminOrderTicket('${order.id}')">Imprimir</button>
         <button class="btn small secondary" onclick="updateOrder('${order.id}', 'in_progress')">Preparar</button>
         <button class="btn small secondary" onclick="updateOrder('${order.id}', 'ready')">Listo</button>
         <button class="btn small success" onclick="updateOrder('${order.id}', 'delivered')">Entregado</button>
@@ -230,7 +233,7 @@ function renderAlerts() {
         </div>
       </div>
     `;
-  }).join('');
+  }).join('\n');
 }
 
 function renderOrders() {
@@ -244,7 +247,7 @@ function renderOrdersInto(elementId, orders) {
     el.innerHTML = '<div class="item"><div>No hay comandas todavía.</div></div>';
     return;
   }
-  el.innerHTML = orders.map(order => orderCard(order, true)).join('');
+  el.innerHTML = orders.map(order => orderCard(order, true)).join('\n');
 }
 
 function renderCommandBoard() {
@@ -257,7 +260,7 @@ function renderCommandBoard() {
   for (const [id, orders] of Object.entries(groups)) {
     const el = document.getElementById(id);
     if (!el) continue;
-    el.innerHTML = orders.length ? orders.map(order => orderCard(order, false)).join('') : '<div class="item"><div>Sin comandas.</div></div>';
+    el.innerHTML = orders.length ? orders.map(order => orderCard(order, false)).join('\n') : '<div class="item"><div>Sin comandas.</div></div>';
   }
 }
 
@@ -289,6 +292,118 @@ function paymentMethodName(value) {
     other: 'Otro'
   };
   return labels[value] || labels.pending;
+}
+
+function kitchenStations() {
+  const configured = db?.restaurant?.kitchenStations;
+  if (Array.isArray(configured) && configured.length) return configured;
+  return [
+    { id: 'hot', label: 'Barra caliente', icon: '🔥' },
+    { id: 'cold', label: 'Barra fría', icon: '🥗' },
+    { id: 'drinks', label: 'Bebidas', icon: '🥤' }
+  ];
+}
+
+function kitchenStationName(value) {
+  const station = kitchenStations().find(item => item.id === (value || 'hot')) || kitchenStations()[0] || { id: 'hot', label: 'Barra caliente', icon: '🔥' };
+  return `${station.icon ? `${station.icon} ` : ''}${station.label || station.id}`;
+}
+
+function kitchenStationsText() {
+  return kitchenStations().map(station => station.label || station.id).join('\n');
+}
+
+function renderKitchenStationOptions(selected = '') {
+  const stations = kitchenStations();
+  const select = document.getElementById('itemKitchenStation');
+  if (select) {
+    select.innerHTML = stations.map(station => `<option value="${escapeHtml(station.id)}">${escapeHtml(station.icon ? `${station.icon} ${station.label}` : station.label)}</option>`).join('\n');
+    select.value = stations.some(station => station.id === selected) ? selected : (stations[0]?.id || 'hot');
+  }
+  const staffStations = document.getElementById('staffKitchenStations');
+  if (staffStations) {
+    staffStations.innerHTML = stations.map(station => `
+      <label class="check-pill">
+        <input type="checkbox" name="staffKitchenStation" value="${escapeHtml(station.id)}" />
+        <span>${escapeHtml(station.icon ? `${station.icon} ${station.label}` : station.label)}</span>
+      </label>
+    `).join('\n');
+  }
+}
+
+function modifiersText(item) {
+  const modifiers = Array.isArray(item?.modifiers) ? item.modifiers : [];
+  return modifiers.length ? `${item.modifierGroupName || 'Opción'}: ${modifiers.join(', ')}` : 'Sin subdivisión';
+}
+
+function modifierLine(item) {
+  return Array.isArray(item?.modifiers) && item.modifiers.length
+    ? `<div class="item-meta">${escapeHtml(item.modifierGroupName || 'Opción')}: ${item.modifiers.map(escapeHtml).join(' · ')}</div>`
+    : '';
+}
+
+function orderItemText(item) {
+  const modifier = item.modifierName ? ` · ${item.modifierGroupName || 'Opción'}: ${item.modifierName}` : '';
+  return `${item.qty} × ${item.name}${modifier}`;
+}
+
+function ticketWidthMm() {
+  const value = Number(db?.restaurant?.printSettings?.ticketWidthMm || 58);
+  return value === 80 ? 80 : 58;
+}
+
+function ticketBodyWidthMm(width = ticketWidthMm()) {
+  return width === 58 ? 48 : 72;
+}
+
+function ticketPrintStyles(width = ticketWidthMm()) {
+  const bodyWidth = ticketBodyWidthMm(width);
+  const brandSize = width === 58 ? 17 : 20;
+  const baseSize = width === 58 ? 11 : 12;
+  const strongSize = width === 58 ? 13 : 15;
+  return `
+    @page{size:${width}mm auto;margin:0}
+    *{box-sizing:border-box}
+    html,body{margin:0;padding:0;background:#fff;color:#111}
+    body{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Courier New",monospace;width:${bodyWidth}mm;margin:0 auto;font-size:${baseSize}px;line-height:1.28;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    .ticket{padding:3mm 1mm 4mm}
+    .center{text-align:center}.brand{font-size:${brandSize}px;font-weight:900;letter-spacing:.06em}.muted{color:#555}.line{border-top:1px dashed #222;margin:7px 0}.row{display:flex;justify-content:space-between;gap:6px;align-items:flex-start}.row span:last-child,.row strong:last-child{text-align:right}.item{margin:6px 0;break-inside:avoid}.item strong{font-size:${strongSize}px}.item small{display:block;color:#555;margin-top:2px}.total{font-size:${width === 58 ? 14 : 16}px;font-weight:900}.footer{margin-top:8px;text-align:center;font-size:10px;color:#555}.print-actions{display:grid;gap:8px;margin-top:12px}.print-actions button{width:100%;padding:10px;border:0;border-radius:10px;background:#111;color:#fff;font-weight:800}
+    @media print{.print-actions{display:none!important}body{width:${bodyWidth}mm}.ticket{padding:2mm 0}}
+  `;
+}
+
+function printHtmlDocument(title, bodyHtml, options = {}) {
+  const restaurant = db?.restaurant?.name || 'AUREA';
+  const width = ticketWidthMm();
+  const footer = options.footer || 'Gracias por su preferencia';
+  const w = window.open('', '_blank', 'width=380,height=720');
+  if (!w) return toast('El navegador bloqueó la ventana de impresión. Permite ventanas emergentes.');
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escapeHtml(title)}</title><style>${ticketPrintStyles(width)}</style></head><body><div class="ticket"><div class="center"><div class="brand">${escapeHtml(restaurant)}</div><div class="muted">AUREA by KMO</div></div><div class="line"></div>${bodyHtml}<div class="line"></div><div class="footer">${escapeHtml(footer)}</div><div class="print-actions"><button onclick="window.print()">Imprimir</button><button onclick="window.close()">Cerrar</button></div></div><script>window.addEventListener('load',()=>setTimeout(()=>{window.focus();window.print()},450));<\/script></body></html>`);
+  w.document.close();
+}
+
+function printAdminTestTicket() {
+  printHtmlDocument('Prueba impresión AUREA', `
+    <div class="center"><strong>PRUEBA DE IMPRESIÓN</strong><br><span class="muted">${new Date().toLocaleString('es-MX')}</span></div>
+    <div class="line"></div>
+    <div class="item"><strong>Urovo / Web Print</strong><small>Ancho configurado: ${ticketWidthMm()} mm</small><small>Si este ticket sale completo, AUREA puede imprimir desde navegador.</small></div>
+    <div class="line"></div>
+    <div class="row total"><span>ÁUREA</span><span>OK</span></div>
+  `, { footer: 'Módulo de impresión web' });
+}
+
+function printAdminOrderTicket(orderId) {
+  const order = (db.orders || []).find(item => item.id === orderId);
+  if (!order) return toast('Comanda no encontrada');
+  const items = (order.items || []).map(item => `
+    <div class="item"><div class="row"><strong>${escapeHtml(item.qty)}× ${escapeHtml(item.name)}</strong><span>${money(item.subtotal)}</span></div>${item.modifierName ? `<small>${escapeHtml(item.modifierGroupName || 'Opción')}: ${escapeHtml(item.modifierName)}</small>` : ''}${item.note ? `<small>Nota: ${escapeHtml(item.note)}</small>` : ''}${item.dinerName ? `<small>Cuenta: ${escapeHtml(item.dinerName)}</small>` : ''}</div>
+  `).join('\n');
+  printHtmlDocument(`Comanda #${order.commandNumber || ''}`, `
+    <div class="center"><strong>COMANDA #${escapeHtml(order.commandNumber || '-')}</strong><br><span>${escapeHtml(order.tableName || 'Mesa')}</span><br><span class="muted">${dateTime(order.createdAt)}</span></div>
+    <div class="line"></div>${items}
+    ${order.note ? `<div class="line"></div><div><strong>Nota:</strong> ${escapeHtml(order.note)}</div>` : ''}
+    <div class="line"></div><div class="row total"><span>Total</span><span>${money(order.total)}</span></div>
+  `);
 }
 
 function selectedFinanceDate() {
@@ -357,7 +472,7 @@ function renderPendingPayments(payments) {
         <button class="btn small secondary" onclick="approvePayment('${payment.id}', false)">Solo autorizar</button>
       </div>
     </div>
-  `).join('');
+  `).join('\n');
 }
 
 function renderExpenses(expenses) {
@@ -376,7 +491,7 @@ function renderExpenses(expenses) {
       </div>
       <button class="btn danger small" onclick="deleteExpense('${expense.id}')">Cancelar</button>
     </div>
-  `).join('');
+  `).join('\n');
 }
 
 function renderDailyClosePreview(summary) {
@@ -469,7 +584,7 @@ async function copyDailyCloseSummary() {
 
 function renderCategories() {
   const select = document.getElementById('itemCategory');
-  select.innerHTML = db.categories.map(cat => `<option value="${cat.id}">${escapeHtml(cat.name)}</option>`).join('');
+  select.innerHTML = db.categories.map(cat => `<option value="${cat.id}">${escapeHtml(cat.name)}</option>`).join('\n');
 
   const list = document.getElementById('categoryList');
   if (db.categories.length === 0) {
@@ -484,7 +599,7 @@ function renderCategories() {
       </div>
       <button class="btn danger small" onclick="deleteCategory('${cat.id}')">Eliminar</button>
     </div>
-  `).join('');
+  `).join('\n');
 }
 
 function renderMenu() {
@@ -500,8 +615,9 @@ function renderMenu() {
       <div class="item">
         <div class="item-main">
           <div class="item-title">${escapeHtml(item.name)} · ${money(item.price)}</div>
-          <div class="item-meta">${escapeHtml(category?.name || 'Sin categoría')} · ${item.available ? 'Disponible' : 'Oculto'} ${item.featured ? '· Recomendado' : ''}</div>
+          <div class="item-meta">${escapeHtml(category?.name || 'Sin categoría')} · ${escapeHtml(kitchenStationName(item.kitchenStation))} · ${item.available ? 'Disponible' : 'Oculto'} ${item.featured ? '· Recomendado' : ''}</div>
           <div class="item-meta">${escapeHtml(item.description || '')}</div>
+          ${modifierLine(item)}
         </div>
         <div class="inline-actions end">
           <button class="btn secondary small" onclick="editMenuItem('${item.id}')">Editar</button>
@@ -510,7 +626,7 @@ function renderMenu() {
         </div>
       </div>
     `;
-  }).join('');
+  }).join('\n');
 }
 
 async function renderTables(force = false) {
@@ -535,7 +651,7 @@ async function renderTables(force = false) {
         <button class="btn danger small" onclick="deleteTable('${table.id}')">Eliminar</button>
       </div>
     </div>
-  `).join('');
+  `).join('\n');
 
   for (const table of db.tables) {
     try {
@@ -600,12 +716,12 @@ function renderActiveSessions() {
         <div style="margin-top:8px;"><span class="pill">${session.assignedStaffName ? `Atiende ${escapeHtml(session.assignedStaffName)}` : 'Sin asignar'}</span></div>
       </div>
       <div class="inline-actions end">
-        ${session.assignedStaffName ? '' : (db.staff || []).filter(s => s.active !== false).map(member => `<button class="btn small secondary" onclick="adminAssignTable('${session.tableId}', '${member.id}')">Asignar a ${escapeHtml(member.name)}</button>`).join('')}
+        ${session.assignedStaffName ? '' : (db.staff || []).filter(s => s.active !== false).map(member => `<button class="btn small secondary" onclick="adminAssignTable('${session.tableId}', '${member.id}')">Asignar a ${escapeHtml(member.name)}</button>`).join('\n')}
         ${session.paymentStatus === 'paid' ? '<span class="pill">Pagada</span>' : ''}
         <button class="btn small success" onclick="adminCloseTable('${session.tableId}')">Cerrar mesa</button>
       </div>
     </div>
-  `).join('');
+  `).join('\n');
 }
 
 function renderStaffStats() {
@@ -632,7 +748,7 @@ function renderStaffStats() {
         </div>
       </div>
     </div>
-  `).join('');
+  `).join('\n');
 }
 
 function renderStaffZoneOptions() {
@@ -647,7 +763,7 @@ function renderStaffZoneOptions() {
       <input type="checkbox" name="staffZoneTable" value="${escapeHtml(table.id)}" />
       <span>${escapeHtml(table.name)}</span>
     </label>
-  `).join('');
+  `).join('\n');
 }
 
 async function adminAssignTable(tableId, staffId) {
@@ -683,7 +799,7 @@ function renderHistory() {
   }
   el.innerHTML = closures.map(close => {
     const split = close.splitAccounts || [];
-    const splitHtml = split.length ? `<div class="split-summary mini-history">${split.map(account => `<span><strong>${escapeHtml(account.name)}</strong> ${money(account.subtotal)}</span>`).join('')}</div>` : '';
+    const splitHtml = split.length ? `<div class="split-summary mini-history">${split.map(account => `<span><strong>${escapeHtml(account.name)}</strong> ${money(account.subtotal)}</span>`).join('\n')}</div>` : '';
     return `
       <div class="item history-card" style="align-items:flex-start;">
         <div class="item-main">
@@ -695,7 +811,7 @@ function renderHistory() {
         </div>
       </div>
     `;
-  }).join('');
+  }).join('\n');
 }
 
 async function saveStaffZones(staffId) {
@@ -707,6 +823,22 @@ async function saveStaffZones(staffId) {
   try {
     await api(`/api/admin/staff/${staffId}`, { method: 'PUT', body: JSON.stringify({ assignedTableIds }) });
     toast('Zonas actualizadas');
+    await loadData(true);
+  } catch (error) {
+    toast(error.message);
+  }
+}
+
+async function saveStaffKitchenZones(staffId) {
+  const member = db.staff.find(s => s.id === staffId);
+  if (!member) return;
+  const available = kitchenStations().map(station => `${station.id}=${station.label}`).join(', ');
+  const raw = prompt(`IDs de cocina separados por coma. Disponibles: ${available}. Vacío = ve todas.`, (member.kitchenStationIds || []).join(', '));
+  if (raw === null) return;
+  const kitchenStationIds = raw.split(',').map(value => value.trim()).filter(Boolean);
+  try {
+    await api(`/api/admin/staff/${staffId}`, { method: 'PUT', body: JSON.stringify({ kitchenStationIds }) });
+    toast('Zonas de cocina actualizadas');
     await loadData(true);
   } catch (error) {
     toast(error.message);
@@ -748,7 +880,7 @@ function renderCRM() {
         <button class="btn danger small" onclick="deleteContact('${contact.id}')">Eliminar</button>
       </div>
     </div>
-  `).join('');
+  `).join('\n');
 }
 
 
@@ -805,7 +937,7 @@ function renderWhatsappOrders() {
         </div>
       </div>
     `;
-  }).join('');
+  }).join('\n');
 }
 
 async function generateWhatsappClientQr() {
@@ -869,6 +1001,14 @@ function renderSettings() {
   document.getElementById('restaurantAccentColor').value = db.restaurant.accentColor || '#c9a44c';
   document.getElementById('operationMode').value = db.restaurant.operationMode || 'commands';
   document.getElementById('assignmentMode').value = db.restaurant.assignmentMode || 'free';
+  const kitchenText = document.getElementById('kitchenStationsText');
+  if (kitchenText) kitchenText.value = kitchenStationsText();
+  const printSettings = db.restaurant.printSettings || {};
+  const autoPrint = document.getElementById('kitchenAutoPrintEnabled');
+  if (autoPrint) autoPrint.checked = printSettings.kitchenAutoPrintEnabled !== false;
+  const ticketWidth = document.getElementById('ticketWidthMm');
+  if (ticketWidth) ticketWidth.value = String(printSettings.ticketWidthMm || 58);
+  renderKitchenStationOptions(document.getElementById('itemKitchenStation')?.value || '');
   const wa = db.restaurant.whatsappOfficial || {};
   if (document.getElementById('waOfficialEnabled')) {
     document.getElementById('waOfficialEnabled').checked = Boolean(wa.enabled);
@@ -883,6 +1023,7 @@ function renderSettings() {
   if (db.restaurant.logoDataUrl) preview.innerHTML = `<img src="${db.restaurant.logoDataUrl}" alt="Logo" />`;
   else preview.textContent = 'Sin logo cargado';
   renderStaffZoneOptions();
+  renderKitchenStationOptions(document.getElementById('itemKitchenStation')?.value || '');
   updateStaffPinPreview();
 }
 
@@ -898,15 +1039,17 @@ function renderStaff() {
       <div class="item-main">
         <div class="item-title">${escapeHtml(member.name)} · ${escapeHtml(member.role || 'Mesero')}</div>
         <div class="item-meta">WhatsApp: ${escapeHtml(member.whatsapp || 'Sin WhatsApp')} · PIN: ${escapeHtml(member.pin || 'Sin PIN')}</div>
-        <div class="item-meta">Zona: ${escapeHtml((member.assignedTableIds || []).map(id => (db.tables.find(t => t.id === id)?.name || id)).join(', ') || 'Sin mesas asignadas')}</div>
+        <div class="item-meta">Mesas: ${escapeHtml((member.assignedTableIds || []).map(id => (db.tables.find(t => t.id === id)?.name || id)).join(', ') || 'Sin mesas asignadas')}</div>
+        <div class="item-meta">Cocina: ${escapeHtml((member.kitchenStationIds || []).map(kitchenStationName).join(', ') || 'Ve todas las barras')}</div>
         <div style="margin-top:8px;"><span class="pill">${member.active !== false ? 'Activo' : 'Inactivo'}</span></div>
       </div>
       <div class="inline-actions end">
-        <button class="btn small secondary" onclick="saveStaffZones('${member.id}')">Editar zona</button>
+        <button class="btn small secondary" onclick="saveStaffZones('${member.id}')">Editar mesas</button>
+        <button class="btn small secondary" onclick="saveStaffKitchenZones('${member.id}')">Editar cocina</button>
         <button class="btn danger small" onclick="deleteStaff('${member.id}')">Eliminar</button>
       </div>
     </div>
-  `).join('');
+  `).join('\n');
 }
 
 async function updateAlert(id, status) {
@@ -939,6 +1082,10 @@ function editMenuItem(id) {
   document.getElementById('itemDescription').value = item.description || '';
   document.getElementById('itemPrice').value = item.price || '';
   document.getElementById('itemImageUrl').value = item.imageUrl || '';
+  renderKitchenStationOptions(item.kitchenStation || 'hot');
+  document.getElementById('itemKitchenStation').value = item.kitchenStation || kitchenStations()[0]?.id || 'hot';
+  document.getElementById('itemModifierGroupName').value = item.modifierGroupName || '';
+  document.getElementById('itemModifiers').value = Array.isArray(item.modifiers) ? item.modifiers.join('\n') : '';
   document.getElementById('itemAvailable').checked = item.available !== false;
   document.getElementById('itemFeatured').checked = Boolean(item.featured);
   document.getElementById('menuFormTitle').textContent = 'Editar producto';
@@ -952,6 +1099,10 @@ function cancelMenuEdit() {
   form.reset();
   document.getElementById('itemEditingId').value = '';
   document.getElementById('itemAvailable').checked = true;
+  renderKitchenStationOptions(kitchenStations()[0]?.id || 'hot');
+  document.getElementById('itemKitchenStation').value = kitchenStations()[0]?.id || 'hot';
+  document.getElementById('itemModifierGroupName').value = '';
+  document.getElementById('itemModifiers').value = '';
   document.getElementById('menuFormTitle').textContent = 'Agregar producto';
   document.getElementById('menuSubmitBtn').textContent = 'Guardar producto';
   document.getElementById('cancelEditBtn').style.display = 'none';
@@ -1125,12 +1276,12 @@ function fillAdminManualSelectors() {
   const staffSelect = document.getElementById('adminManualStaffSelect');
   if (tableSelect) {
     tableSelect.innerHTML = (db.tables || []).length
-      ? db.tables.map(table => `<option value="${escapeHtml(table.id)}">${escapeHtml(table.name)}</option>`).join('')
+      ? db.tables.map(table => `<option value="${escapeHtml(table.id)}">${escapeHtml(table.name)}</option>`).join('\n')
       : '<option value="">No hay mesas configuradas</option>';
   }
   if (staffSelect) {
     const activeStaff = (db.staff || []).filter(member => member.active !== false);
-    staffSelect.innerHTML = '<option value="">Sin asignar / Admin</option>' + activeStaff.map(member => `<option value="${escapeHtml(member.id)}">${escapeHtml(member.name)} · ${escapeHtml(member.role || 'Mesero')}</option>`).join('');
+    staffSelect.innerHTML = '<option value="">Sin asignar / Admin</option>' + activeStaff.map(member => `<option value="${escapeHtml(member.id)}">${escapeHtml(member.name)} · ${escapeHtml(member.role || 'Mesero')}</option>`).join('\n');
   }
 }
 
@@ -1160,7 +1311,8 @@ function renderAdminManualItems() {
       <div class="item" style="align-items:flex-start;">
         <div class="item-main">
           <div class="item-title">${escapeHtml(item.name)} · <span class="price">${money(item.price)}</span></div>
-          <div class="item-meta">${escapeHtml(category?.name || 'Sin categoría')}${item.description ? ` · ${escapeHtml(item.description)}` : ''}</div>
+          <div class="item-meta">${escapeHtml(category?.name || 'Sin categoría')} · ${escapeHtml(kitchenStationName(item.kitchenStation))}${item.description ? ` · ${escapeHtml(item.description)}` : ''}</div>
+          ${Array.isArray(item.modifiers) && item.modifiers.length ? `<label style="margin-top:8px;">${escapeHtml(item.modifierGroupName || 'Opción')}<select class="admin-manual-modifier" data-item-id="${escapeHtml(item.id)}"><option value="">Sin selección</option>${item.modifiers.map(option => `<option value="${escapeHtml(option)}">${escapeHtml(option)}</option>`).join('\n')}</select></label>` : ''}
           <label style="margin-top:8px;">Nota del producto
             <input class="input admin-manual-note" data-item-id="${escapeHtml(item.id)}" placeholder="Ej. sin cebolla, término medio..." />
           </label>
@@ -1175,7 +1327,7 @@ function renderAdminManualItems() {
         </div>
       </div>
     `;
-  }).join('');
+  }).join('\n');
 }
 
 async function submitAdminManualOrder() {
@@ -1187,7 +1339,8 @@ async function submitAdminManualOrder() {
       const qty = Number(input.value || 0);
       const noteInput = document.querySelector(`.admin-manual-note[data-item-id="${CSS.escape(itemId)}"]`);
       const dinerInput = document.querySelector(`.admin-manual-diner[data-item-id="${CSS.escape(itemId)}"]`);
-      return { itemId, qty, note: noteInput ? noteInput.value : '', dinerName: dinerInput ? dinerInput.value : '', dinerBreakdown: dinerInput ? dinerInput.value : '' };
+      const modifierInput = document.querySelector(`.admin-manual-modifier[data-item-id="${CSS.escape(itemId)}"]`);
+      return { itemId, qty, note: noteInput ? noteInput.value : '', modifierName: modifierInput ? modifierInput.value : '', dinerName: dinerInput ? dinerInput.value : '', dinerBreakdown: dinerInput ? dinerInput.value : '' };
     })
     .filter(item => item.qty > 0);
 
@@ -1244,6 +1397,9 @@ document.getElementById('menuForm').addEventListener('submit', async event => {
       description: document.getElementById('itemDescription').value,
       price: document.getElementById('itemPrice').value,
       imageUrl: document.getElementById('itemImageUrl').value,
+      kitchenStation: document.getElementById('itemKitchenStation').value,
+      modifierGroupName: document.getElementById('itemModifierGroupName').value,
+      modifiers: document.getElementById('itemModifiers').value,
       available: document.getElementById('itemAvailable').checked,
       featured: document.getElementById('itemFeatured').checked
     };
@@ -1319,6 +1475,11 @@ document.getElementById('settingsForm').addEventListener('submit', async event =
       accentColor: document.getElementById('restaurantAccentColor').value,
       operationMode: document.getElementById('operationMode').value,
       assignmentMode: document.getElementById('assignmentMode').value,
+      kitchenStations: document.getElementById('kitchenStationsText')?.value || '',
+      printSettings: {
+        kitchenAutoPrintEnabled: document.getElementById('kitchenAutoPrintEnabled')?.checked !== false,
+        ticketWidthMm: document.getElementById('ticketWidthMm')?.value || 58
+      },
       whatsappOfficial: {
         enabled: document.getElementById('waOfficialEnabled')?.checked || false,
         displayName: document.getElementById('waOfficialDisplayName')?.value || '',
@@ -1351,11 +1512,13 @@ document.getElementById('staffForm').addEventListener('submit', async event => {
         whatsapp: document.getElementById('staffWhatsapp').value,
         pin: document.getElementById('staffPin').value,
         assignedTableIds: Array.from(document.querySelectorAll('input[name="staffZoneTable"]:checked')).map(input => input.value),
+        kitchenStationIds: Array.from(document.querySelectorAll('input[name="staffKitchenStation"]:checked')).map(input => input.value),
         active: true
       })
     });
     event.target.reset();
     document.getElementById('staffRole').value = 'Mesero';
+    document.querySelectorAll('input[name="staffKitchenStation"], input[name="staffZoneTable"]').forEach(input => { input.checked = false; });
     updateStaffPinPreview();
     toast('Staff agregado');
     await loadData(true);
@@ -1443,7 +1606,7 @@ checkSession();
 
 
 const AUREA_SUPPORT_WHATSAPP = '526601552214';
-const AUREA_RELEASE_VERSION = '0.8.8';
+const AUREA_RELEASE_VERSION = '0.9.1';
 
 function supportWhatsAppUrl(panel) {
   const restaurant = (typeof staffDb !== 'undefined' && staffDb?.restaurant?.name) || (typeof db !== 'undefined' && db?.restaurant?.name) || (typeof kitchenDb !== 'undefined' && kitchenDb?.restaurant?.name) || 'AUREA';
@@ -1481,7 +1644,7 @@ function releaseNotesFor(panel = 'panel') {
   return [
     'Corte diario con pagos, egresos y cierre de caja.',
     'Pagos de mesero requieren autorización de admin/capitán.',
-    'Nuevo flujo de pedidos más simple para el equipo.'
+    'Cocina por barras, modificadores e impresión térmica básica.'
   ];
 }
 
@@ -1502,7 +1665,7 @@ function showAureaReleaseNotesOnce(panel = 'panel') {
         <button class="btn ghost small" type="button" data-close-release>Cerrar</button>
       </div>
       <div class="release-notes">
-        ${notes.map((note, index) => `<div class="release-note"><strong>${index + 1}</strong><span>${note}</span></div>`).join('')}
+        ${notes.map((note, index) => `<div class="release-note"><strong>${index + 1}</strong><span>${note}</span></div>`).join('\n')}
       </div>
       <div class="inline-actions end" style="margin-top:16px;">
         <button class="btn secondary" type="button" data-start-tour>Ver tour</button>

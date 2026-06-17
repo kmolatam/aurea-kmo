@@ -1,6 +1,6 @@
 # AUREA by KMO · La Lomita
 
-Versión: 0.8.2-lalomita
+Versión: 0.9.1-web-print-urovo
 
 ## Cambios incluidos
 
@@ -38,3 +38,24 @@ npm start
 ```
 
 Puerto: `3000`
+
+
+## Web Print Urovo v0.9.1
+
+Agrega:
+- Ticket web optimizado para 58 mm y 80 mm.
+- Perfil recomendado para Urovo i9100 / Smart POS con impresora interna de 58 mm.
+- Botón “Probar ticket web” en Configuración del admin.
+- Botón “Probar ticket” en pantalla de cocina.
+- Admin, staff y cocina respetan el ancho configurado en AUREA.
+
+Uso recomendado para Urovo i9100:
+1. Entrar a Admin → Configuración.
+2. Seleccionar ancho de ticket: 58 mm.
+3. Guardar.
+4. Abrir AUREA desde Chrome en el Urovo.
+5. Presionar “Probar ticket web”.
+6. Si Android muestra la impresora interna / servicio de impresión y sale el ticket completo, usar impresión web directa.
+
+Nota técnica:
+La impresión sigue usando `window.print()` desde navegador. Si el Urovo no expone su térmica interna al navegador/servicio de impresión, se requerirá app puente o SDK del fabricante.

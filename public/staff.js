@@ -7,7 +7,7 @@ let currentStaffOrderDraft = [];
 let currentStaffCategoryId = '';
 let currentStaffEditingItemId = '';
 let guidedTourState = null;
-const STAFF_JS_VERSION = '0.8.5';
+const STAFF_JS_VERSION = '0.9.1';
 let notificationsBaselineReady = false;
 const seenAlertIds = new Set();
 const seenOrderIds = new Set();
@@ -79,6 +79,95 @@ function statusLabel(status) {
     cancelled: 'Cancelado'
   };
   return labels[status] || status;
+}
+
+function kitchenStationName(value) {
+  const labels = { hot: '🔥 Barra caliente', cold: '🥗 Barra fría', drinks: '🥤 Bebidas' };
+  return labels[value || 'hot'] || labels.hot;
+}
+
+function lineModifierText(item) {
+  return item?.modifierName ? ` · ${item.modifierGroupName || 'Opción'}: ${item.modifierName}` : '';
+}
+
+function resetStaffOrderDraft() {
+  currentStaffOrderDraft = [];
+  currentStaffCategoryId = '';
+  currentStaffEditingItemId = '';
+}
+
+function setChoiceActive(input) {
+  const groupName = input.name;
+  document.querySelectorAll(`input[name="${groupName}"]`).forEach(item => {
+    const label = item.closest('.choice-check');
+    if (label) label.classList.toggle('active', item.checked);
+  });
+}
+
+function ticketWidthMm() {
+  const value = Number(staffDb?.restaurant?.printSettings?.ticketWidthMm || 58);
+  return value === 80 ? 80 : 58;
+}
+
+function ticketBodyWidthMm(width = ticketWidthMm()) {
+  return width === 58 ? 48 : 72;
+}
+
+function ticketPrintStyles(width = ticketWidthMm()) {
+  const bodyWidth = ticketBodyWidthMm(width);
+  const brandSize = width === 58 ? 17 : 20;
+  const baseSize = width === 58 ? 11 : 12;
+  const strongSize = width === 58 ? 13 : 15;
+  return `
+    @page{size:${width}mm auto;margin:0}
+    *{box-sizing:border-box}
+    html,body{margin:0;padding:0;background:#fff;color:#111}
+    body{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Courier New",monospace;width:${bodyWidth}mm;margin:0 auto;font-size:${baseSize}px;line-height:1.28;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    .ticket{padding:3mm 1mm 4mm}
+    .center{text-align:center}.brand{font-size:${brandSize}px;font-weight:900;letter-spacing:.06em}.muted{color:#555}.line{border-top:1px dashed #222;margin:7px 0}.row{display:flex;justify-content:space-between;gap:6px;align-items:flex-start}.row span:last-child,.row strong:last-child{text-align:right}.item{margin:6px 0;break-inside:avoid}.item strong{font-size:${strongSize}px}.item small{display:block;color:#555;margin-top:2px}.total{font-size:${width === 58 ? 14 : 16}px;font-weight:900}.footer{margin-top:8px;text-align:center;font-size:10px;color:#555}.print-actions{display:grid;gap:8px;margin-top:12px}.print-actions button{width:100%;padding:10px;border:0;border-radius:10px;background:#111;color:#fff;font-weight:800}
+    @media print{.print-actions{display:none!important}body{width:${bodyWidth}mm}.ticket{padding:2mm 0}}
+  `;
+}
+
+function printHtmlDocument(title, bodyHtml, options = {}) {
+  const restaurant = staffDb?.restaurant?.name || 'AUREA';
+  const width = ticketWidthMm();
+  const footer = options.footer || 'Gracias por su preferencia';
+  const w = window.open('', '_blank', 'width=380,height=720');
+  if (!w) return toast('El navegador bloqueó la ventana de impresión. Permite ventanas emergentes.');
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escapeHtml(title)}</title><style>${ticketPrintStyles(width)}</style></head><body><div class="ticket"><div class="center"><div class="brand">${escapeHtml(restaurant)}</div><div class="muted">AUREA by KMO</div></div><div class="line"></div>${bodyHtml}<div class="line"></div><div class="footer">${escapeHtml(footer)}</div><div class="print-actions"><button onclick="window.print()">Imprimir</button><button onclick="window.close()">Cerrar</button></div></div><script>window.addEventListener('load',()=>setTimeout(()=>{window.focus();window.print()},450));<\/script></body></html>`);
+  w.document.close();
+}
+
+function printStaffOrderTicket(orderId) {
+  const order = (staffDb.orders || []).find(item => item.id === orderId);
+  if (!order) return toast('Comanda no encontrada');
+  const items = (order.items || []).map(item => `
+    <div class="item"><div class="row"><strong>${escapeHtml(item.qty)}× ${escapeHtml(item.name)}</strong><span>${money(item.subtotal)}</span></div>${item.modifierName ? `<small>${escapeHtml(item.modifierGroupName || 'Opción')}: ${escapeHtml(item.modifierName)}</small>` : ''}${item.note ? `<small>Nota: ${escapeHtml(item.note)}</small>` : ''}${item.dinerName ? `<small>Cuenta: ${escapeHtml(item.dinerName)}</small>` : ''}</div>
+  `).join('');
+  printHtmlDocument(`Comanda #${order.commandNumber || ''}`, `
+    <div class="center"><strong>COMANDA #${escapeHtml(order.commandNumber || '-')}</strong><br><span>${escapeHtml(order.tableName || 'Mesa')}</span><br><span class="muted">${dateTime(order.createdAt)}</span></div>
+    <div class="line"></div>${items}
+    ${order.note ? `<div class="line"></div><div><strong>Nota:</strong> ${escapeHtml(order.note)}</div>` : ''}
+    <div class="line"></div><div class="row total"><span>Total</span><span>${money(order.total)}</span></div>
+  `);
+}
+
+function printStaffBillTicket() {
+  if (!currentPaymentTableId) return toast('Abre una cuenta primero');
+  const session = (staffDb.tableSessions || []).find(item => item.tableId === currentPaymentTableId && item.status === 'active');
+  const table = (staffDb.tables || []).find(item => item.id === currentPaymentTableId);
+  const lines = billLinesForTable(currentPaymentTableId);
+  const total = lines.reduce((sum, line) => sum + Number(line.subtotal || 0), 0);
+  const items = lines.map(line => `
+    <div class="item"><div class="row"><span>${escapeHtml(line.qty)}× ${escapeHtml(line.name)}</span><strong>${money(line.subtotal)}</strong></div>${line.modifierName ? `<small>${escapeHtml(line.modifierGroupName || 'Opción')}: ${escapeHtml(line.modifierName)}</small>` : ''}${line.note ? `<small>Nota: ${escapeHtml(line.note)}</small>` : ''}${line.dinerName ? `<small>Cuenta: ${escapeHtml(line.dinerName)}</small>` : ''}</div>
+  `).join('');
+  printHtmlDocument(`Ticket ${session?.tableName || table?.name || 'Mesa'}`, `
+    <div class="center"><strong>TICKET DE CUENTA</strong><br><span>${escapeHtml(session?.tableName || table?.name || 'Mesa')}</span><br><span class="muted">${dateTime(new Date())}</span></div>
+    <div class="line"></div>${items || '<div class="center muted">Sin productos</div>'}
+    <div class="line"></div><div class="row total"><span>Total</span><span>${money(total)}</span></div>
+    <div class="muted" style="margin-top:6px">Cuenta estimada. Admin/capitán confirma el cierre final.</div>
+  `);
 }
 
 async function checkStaffSession() {
@@ -305,6 +394,8 @@ function billLinesForTable(tableId) {
         price: Number(item.price || 0),
         subtotal: Number(item.subtotal !== undefined ? item.subtotal : Number(item.qty || 0) * Number(item.price || 0)),
         note: item.note || '',
+        modifierName: item.modifierName || '',
+        modifierGroupName: item.modifierGroupName || 'Opción',
         dinerName: item.dinerName || item.personName || ''
       });
     }
@@ -341,7 +432,7 @@ function openStaffBillModal(tableId) {
     <div class="bill-lines">
       ${lines.map(line => `
         <div class="bill-line">
-          <span>${escapeHtml(line.qty)} × ${escapeHtml(line.name)}${line.dinerName ? ` · ${escapeHtml(line.dinerName)}` : ''}</span>
+          <span>${escapeHtml(line.qty)} × ${escapeHtml(line.name)}${line.modifierName ? ` · ${escapeHtml(line.modifierName)}` : ''}${line.dinerName ? ` · ${escapeHtml(line.dinerName)}` : ''}</span>
           <strong>${money(line.subtotal)}</strong>
         </div>
       `).join('')}
@@ -439,6 +530,7 @@ function fillManualTableSelect(selectedId = '') {
 }
 
 function openManualOrderModal() {
+  resetStaffOrderDraft();
   currentOrderMode = 'manual';
   const firstTable = (staffDb?.tables || [])[0];
   currentStaffOrderTableId = firstTable?.id || null;
@@ -455,6 +547,7 @@ function openManualOrderModal() {
 
 
 function openStaffOrderModal(tableId) {
+  resetStaffOrderDraft();
   currentOrderMode = 'session';
   currentStaffOrderTableId = tableId;
   const manualFields = document.getElementById('manualOrderFields');
@@ -470,6 +563,7 @@ function openStaffOrderModal(tableId) {
 function closeStaffOrderModal() {
   currentStaffOrderTableId = null;
   currentOrderMode = 'session';
+  currentStaffEditingItemId = '';
   document.getElementById('staffOrderModal').classList.remove('active');
 }
 
@@ -489,7 +583,10 @@ function getStaffMenuItemsFrom(source) {
       name: item.name || item.title || 'Producto',
       categoryId: item.categoryId || item.category || '',
       description: item.description || '',
-      price: Number(item.price || 0)
+      price: Number(item.price || 0),
+      kitchenStation: item.kitchenStation || 'hot',
+      modifierGroupName: item.modifierGroupName || 'Opción',
+      modifiers: Array.isArray(item.modifiers) ? item.modifiers : []
     });
   });
   return Array.from(byId.values()).filter(isProductAvailable);
@@ -574,6 +671,7 @@ function addStaffDraftItem(itemId) {
   const qty = Math.max(1, Math.min(20, Number(document.getElementById('staffQuickQty')?.value || 1)));
   const note = document.getElementById('staffQuickNote')?.value || '';
   const dinerName = document.getElementById('staffQuickDiner')?.value || '';
+  const modifierName = document.querySelector('input[name="staffQuickModifier"]:checked')?.value || '';
   currentStaffOrderDraft.push({
     localId: `${itemId}-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
     itemId,
@@ -581,6 +679,8 @@ function addStaffDraftItem(itemId) {
     price: Number(item.price || 0),
     qty,
     note,
+    modifierName,
+    modifierGroupName: item.modifierGroupName || 'Opción',
     dinerName,
     dinerBreakdown: dinerName
   });
@@ -637,6 +737,7 @@ async function renderStaffOrderItems() {
           <button type="button" class="menu-pick-card ${draftQtyFor(item.id) ? 'selected' : ''}" onclick="openStaffItemEditor('${escapeHtml(item.id)}')">
             <strong>${escapeHtml(item.name)}</strong>
             <span>${money(item.price)}</span>
+            <small>${escapeHtml(kitchenStationName(item.kitchenStation))}</small>
             ${item.description ? `<small>${escapeHtml(item.description)}</small>` : ''}
             ${draftQtyFor(item.id) ? `<em>${draftQtyFor(item.id)} agregado(s)</em>` : ''}
           </button>
@@ -649,6 +750,14 @@ async function renderStaffOrderItems() {
             <h3>${escapeHtml(editingItem.name)}</h3>
             <p class="muted">${money(editingItem.price)}${editingItem.description ? ` · ${escapeHtml(editingItem.description)}` : ''}</p>
           </div>
+          ${Array.isArray(editingItem.modifiers) && editingItem.modifiers.length ? `
+            <div class="modifier-picker">
+              <div class="form-label">${escapeHtml(editingItem.modifierGroupName || 'Opción')}</div>
+              <div class="choice-grid modifier-choice-grid">
+                ${editingItem.modifiers.map((option, index) => `<label class="choice-check ${index === 0 ? 'active' : ''}"><input type="radio" name="staffQuickModifier" value="${escapeHtml(option)}" ${index === 0 ? 'checked' : ''} onchange="setChoiceActive(this)" /> <span>${escapeHtml(option)}</span></label>`).join('')}
+              </div>
+            </div>
+          ` : ''}
           <div class="grid">
             <label class="col-4">Cantidad
               <input id="staffQuickQty" class="input" type="number" min="1" max="20" value="1" />
@@ -679,7 +788,7 @@ async function renderStaffOrderItems() {
           <div class="draft-row">
             <div>
               <strong>${escapeHtml(item.qty)} × ${escapeHtml(item.name)}</strong>
-              <small>${money(Number(item.price || 0) * Number(item.qty || 0))}${item.dinerName ? ` · Cuenta: ${escapeHtml(item.dinerName)}` : ''}${item.note ? ` · ${escapeHtml(item.note)}` : ''}</small>
+              <small>${money(Number(item.price || 0) * Number(item.qty || 0))}${item.modifierName ? ` · ${escapeHtml(item.modifierGroupName || 'Opción')}: ${escapeHtml(item.modifierName)}` : ''}${item.dinerName ? ` · Cuenta: ${escapeHtml(item.dinerName)}` : ''}${item.note ? ` · ${escapeHtml(item.note)}` : ''}</small>
             </div>
             <button type="button" class="btn danger tiny" onclick="removeStaffDraftItem('${escapeHtml(item.localId)}')">Quitar</button>
           </div>
@@ -698,6 +807,7 @@ async function submitStaffOrder() {
     itemId: item.itemId,
     qty: Number(item.qty || 0),
     note: item.note || '',
+    modifierName: item.modifierName || '',
     dinerName: item.dinerName || '',
     dinerBreakdown: item.dinerBreakdown || item.dinerName || ''
   })).filter(item => item.qty > 0);
@@ -721,6 +831,7 @@ async function submitStaffOrder() {
       method: 'POST',
       body: JSON.stringify(payload)
     });
+    resetStaffOrderDraft();
     closeStaffOrderModal();
     toast(`Pedido #${data.order.commandNumber} enviado a cocina`);
     await loadStaffData();
@@ -789,7 +900,7 @@ function renderOrders() {
         <div class="item-title">#${escapeHtml(order.commandNumber || '-')} · ${escapeHtml(order.tableName)} · ${money(order.total)}</div>
         <div class="item-meta">${dateTime(order.createdAt)} · ${escapeHtml(statusLabel(order.status))}${order.estimatedTime ? ` · Estimado: ${escapeHtml(order.estimatedTime)}` : ''}</div>
         <div style="margin-top:10px; display:grid; gap:4px;">
-          ${order.items.map(item => `<div>${item.qty} × ${escapeHtml(item.name)}${item.dinerName ? ` · ${escapeHtml(item.dinerName)}` : ''} <span class="item-meta">${money(item.subtotal)}</span></div>`).join('')}
+          ${order.items.map(item => `<div>${item.qty} × ${escapeHtml(item.name)}${item.modifierName ? ` · <strong>${escapeHtml(item.modifierName)}</strong>` : ''}${item.dinerName ? ` · ${escapeHtml(item.dinerName)}` : ''} <span class="item-meta">${money(item.subtotal)}</span></div>`).join('')}
         </div>
         ${order.note ? `<div class="item-meta" style="margin-top:8px;">Nota: ${escapeHtml(order.note)}</div>` : ''}
         <div class="item-meta" style="margin-top:8px;">Mesero: ${escapeHtml(order.assignedStaffName || 'sin asignar')}</div>
@@ -797,9 +908,11 @@ function renderOrders() {
       </div>
       <div class="inline-actions end">
         ${order.assignedStaffId ? '' : `<button class="btn small secondary" onclick="takeTable('${order.tableId}')">Tomar mesa</button>`}
+        <button class="btn small ghost" onclick="printStaffOrderTicket('${order.id}')">Imprimir</button>
         <button class="btn small secondary" onclick="updateOrder('${order.id}', 'in_progress')">Preparar</button>
         <button class="btn small secondary" onclick="updateOrder('${order.id}', 'ready')">Listo</button>
         <button class="btn small success" onclick="updateOrder('${order.id}', 'delivered')">Entregado</button>
+        <button class="btn small danger" onclick="cancelStaffOrder('${order.id}')">Cancelar</button>
       </div>
     </div>
   `).join('');
@@ -813,6 +926,12 @@ async function updateAlert(id, status) {
 async function updateOrder(id, status, estimatedTime = undefined) {
   await api(`/api/staff/orders/${id}`, { method: 'PATCH', body: JSON.stringify({ status, estimatedTime }) });
   await loadStaffData();
+}
+
+async function cancelStaffOrder(id) {
+  if (!confirm('¿Cancelar esta comanda? Se quitará de cocina y no contará en la cuenta.')) return;
+  await updateOrder(id, 'cancelled');
+  toast('Comanda cancelada');
 }
 
 async function confirmOrder(id, estimatedTime) {
@@ -848,7 +967,7 @@ checkStaffSession();
 
 
 const AUREA_SUPPORT_WHATSAPP = '526601552214';
-const AUREA_RELEASE_VERSION = '0.8.8';
+const AUREA_RELEASE_VERSION = '0.9.1';
 
 function supportWhatsAppUrl(panel) {
   const restaurant = (typeof staffDb !== 'undefined' && staffDb?.restaurant?.name) || (typeof db !== 'undefined' && db?.restaurant?.name) || (typeof kitchenDb !== 'undefined' && kitchenDb?.restaurant?.name) || 'AUREA';
@@ -871,9 +990,9 @@ function ensureAureaAssist(panel = 'panel') {
 function releaseNotesFor(panel = 'panel') {
   if (panel === 'staff') {
     return [
-      'Nuevo pedido: ahora eliges categoría → platillo → cantidad/nota.',
-      'Generar cuenta: revisa total de mesa y cuentas separadas antes de cobrar.',
-      'El pago capturado por mesero queda pendiente hasta autorización de admin.'
+      'Nuevo pedido limpio: ya no duplica productos anteriores.',
+      'Tickets imprimibles para comandas y cuenta de mesa.',
+      'Subdivisiones tipo salsa y cancelación de comandas desde mesero.'
     ];
   }
   if (panel === 'kitchen') {

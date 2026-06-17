@@ -95,6 +95,41 @@ function dinerOptions(selected = '') {
   return options.map(name => `<option value="${escapeHtml(name)}" ${name === selected ? 'selected' : ''}>${name ? escapeHtml(name) : 'Sin asignar'}</option>`).join('');
 }
 
+function lineKey(line) {
+  return line.localId || line.itemId;
+}
+
+function makeCartLocalId(itemId) {
+  return `${itemId}-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`;
+}
+
+function itemModifiers(item) {
+  return Array.isArray(item?.modifiers) ? item.modifiers : [];
+}
+
+function selectedMenuModifier(itemId) {
+  const checked = document.querySelector(`input[name="modifier-${CSS.escape(itemId)}"]:checked`);
+  return checked?.value || '';
+}
+
+function modifierPickerHtml(item) {
+  const options = itemModifiers(item);
+  if (!options.length) return '';
+  return `
+    <div class="modifier-picker menu-modifier-picker">
+      <div class="form-label">${escapeHtml(item.modifierGroupName || 'Opción')}</div>
+      <div class="choice-grid modifier-choice-grid">
+        ${options.map((option, index) => `
+          <label class="choice-check ${index === 0 ? 'active' : ''}">
+            <input type="radio" name="modifier-${escapeHtml(item.id)}" value="${escapeHtml(option)}" ${index === 0 ? 'checked' : ''} onchange="setChoiceActive(this)" />
+            <span>${escapeHtml(option)}</span>
+          </label>
+        `).join('')}
+      </div>
+    </div>
+  `;
+}
+
 function toggleLeadDiners() {
   const checked = document.getElementById('leadSplitMode')?.checked;
   const wrap = document.getElementById('leadDinersWrap');
@@ -126,8 +161,8 @@ function updateDinersFromInput(source) {
   if (source === 'bill') renderBillSummary();
 }
 
-function setCartDiner(itemId, value) {
-  const line = state.cart.find(item => item.itemId === itemId);
+function setCartDiner(key, value) {
+  const line = state.cart.find(item => lineKey(item) === key);
   if (line) line.dinerName = value || '';
 }
 
@@ -140,8 +175,8 @@ function splitQtyFor(line, dinerName) {
   return Number(found?.qty || 0);
 }
 
-function setCartSplitQty(itemId, dinerName, value) {
-  const line = state.cart.find(item => item.itemId === itemId);
+function setCartSplitQty(key, dinerName, value) {
+  const line = state.cart.find(item => lineKey(item) === key);
   if (!line) return;
   line.splitAssignments = Array.isArray(line.splitAssignments) ? line.splitAssignments : [];
   const cleanName = String(dinerName || '').trim();
@@ -351,6 +386,7 @@ function renderMenu() {
         <div class="item-title">${escapeHtml(item.name)}</div>
         <div class="item-meta">${escapeHtml(item.description || 'Sin descripción')}</div>
         <div class="price" style="margin-top:7px;">${money(item.price)}</div>
+        ${modifierPickerHtml(item)}
       </div>
       <button class="btn small" onclick="addToCart('${item.id}')">Agregar</button>
     </article>
@@ -358,18 +394,28 @@ function renderMenu() {
 }
 
 function addToCart(itemId) {
-  const existing = state.cart.find(line => line.itemId === itemId);
+  const modifierName = selectedMenuModifier(itemId);
+  const item = state.menuItems.find(product => product.id === itemId);
+  const existing = state.cart.find(line => line.itemId === itemId && (line.modifierName || '') === modifierName);
   if (existing) existing.qty += 1;
-  else state.cart.push({ itemId, qty: 1, note: '', dinerName: state.splitMode && state.diners.length === 1 ? state.diners[0] : '' });
+  else state.cart.push({
+    localId: makeCartLocalId(itemId),
+    itemId,
+    qty: 1,
+    note: '',
+    modifierName,
+    modifierGroupName: item?.modifierGroupName || 'Opción',
+    dinerName: state.splitMode && state.diners.length === 1 ? state.diners[0] : ''
+  });
   renderCartBar();
   toast('Producto agregado');
 }
 
-function changeQty(itemId, delta) {
-  const line = state.cart.find(l => l.itemId === itemId);
+function changeQty(key, delta) {
+  const line = state.cart.find(l => lineKey(l) === key);
   if (!line) return;
   line.qty += delta;
-  if (line.qty <= 0) state.cart = state.cart.filter(l => l.itemId !== itemId);
+  if (line.qty <= 0) state.cart = state.cart.filter(l => lineKey(l) !== key);
   else if (Array.isArray(line.splitAssignments)) {
     let remaining = line.qty;
     line.splitAssignments = line.splitAssignments
@@ -427,13 +473,14 @@ function renderCartLines() {
     if (!item) return '';
     const assigned = splitAssignedQty(line);
     const remaining = Math.max(0, Number(line.qty || 0) - assigned);
+    const key = lineKey(line);
     const splitUnitHtml = state.splitMode && line.qty > 1 && state.diners.length ? `
       <div class="split-unit-box">
         <div class="item-meta"><strong>Dividir unidades</strong> · asignadas ${assigned}/${line.qty}${remaining ? ` · sin asignar ${remaining}` : ''}</div>
         <div class="split-unit-grid">
           ${state.diners.map(name => `
             <label>${escapeHtml(name)}
-              <input class="input" type="number" min="0" max="${line.qty}" value="${splitQtyFor(line, name)}" onchange="setCartSplitQty('${line.itemId}', '${escapeHtml(name)}', this.value)" />
+              <input class="input" type="number" min="0" max="${line.qty}" value="${splitQtyFor(line, name)}" onchange="setCartSplitQty('${escapeHtml(key)}', '${escapeHtml(name)}', this.value)" />
             </label>
           `).join('')}
         </div>
@@ -444,15 +491,15 @@ function renderCartLines() {
       <div class="item cart-line-card">
         <div>
           <div class="item-title">${escapeHtml(item.name)}</div>
-          <div class="item-meta">${money(item.price)} c/u</div>
+          <div class="item-meta">${money(item.price)} c/u${line.modifierName ? ` · ${escapeHtml(line.modifierGroupName || 'Opción')}: ${escapeHtml(line.modifierName)}` : ''}</div>
         </div>
         <div class="inline-actions">
-          <button class="btn ghost small" onclick="changeQty('${line.itemId}', -1)">-</button>
+          <button class="btn ghost small" onclick="changeQty('${escapeHtml(key)}', -1)">-</button>
           <strong>${line.qty}</strong>
-          <button class="btn ghost small" onclick="changeQty('${line.itemId}', 1)">+</button>
+          <button class="btn ghost small" onclick="changeQty('${escapeHtml(key)}', 1)">+</button>
         </div>
         ${state.splitMode ? `<label class="cart-diner-select">Cuenta principal / sobrante
-          <select onchange="setCartDiner('${line.itemId}', this.value)">${dinerOptions(line.dinerName || '')}</select>
+          <select onchange="setCartDiner('${escapeHtml(key)}', this.value)">${dinerOptions(line.dinerName || '')}</select>
         </label>${splitUnitHtml}` : ''}
       </div>
     `;
@@ -551,7 +598,7 @@ function renderBillSummary() {
     ? lines.map(line => `
       <div class="item compact-row">
         <div>
-          <div class="item-title">${escapeHtml(line.qty)} × ${escapeHtml(line.name)}</div>
+          <div class="item-title">${escapeHtml(line.qty)} × ${escapeHtml(line.name)}${line.modifierName ? ` · ${escapeHtml(line.modifierName)}` : ''}</div>
           <div class="item-meta">Comanda #${escapeHtml(line.commandNumber || '-')} ${line.note ? `· Nota: ${escapeHtml(line.note)}` : ''}</div>
         </div>
         <strong>${money(line.subtotal)}</strong>
@@ -563,7 +610,7 @@ function renderBillSummary() {
     ? `<div class="split-summary"><h3>Cuentas separadas</h3>${summary.splitAccounts.map(account => `
         <div class="split-account">
           <div class="split-account-head"><strong>${escapeHtml(account.name)}</strong><strong>${money(account.subtotal)}</strong></div>
-          ${(account.lines || []).map(line => `<div class="item-meta">${escapeHtml(line.qty)} × ${escapeHtml(line.name)} · ${money(line.subtotal)}</div>`).join('')}
+          ${(account.lines || []).map(line => `<div class="item-meta">${escapeHtml(line.qty)} × ${escapeHtml(line.name)}${line.modifierName ? ` · ${escapeHtml(line.modifierName)}` : ''} · ${money(line.subtotal)}</div>`).join('')}
         </div>
       `).join('')}</div>`
     : '';
@@ -666,7 +713,7 @@ function renderOrderStatus(order) {
         ${order.status === 'cancelled' ? 'Consulta con el mesero para más información.' : ''}
       </p>
       <div class="list" style="margin-top:12px;">
-        ${order.items.map(item => `<div class="item"><span>${item.qty} × ${escapeHtml(item.name)}${item.dinerName ? ` · ${escapeHtml(item.dinerName)}` : ''}</span><strong>${money(item.subtotal)}</strong></div>`).join('')}
+        ${order.items.map(item => `<div class="item"><span>${item.qty} × ${escapeHtml(item.name)}${item.modifierName ? ` · ${escapeHtml(item.modifierName)}` : ''}${item.dinerName ? ` · ${escapeHtml(item.dinerName)}` : ''}</span><strong>${money(item.subtotal)}</strong></div>`).join('')}
       </div>
       <div class="item" style="margin-top:12px;"><strong>Total</strong><strong>${money(order.total)}</strong></div>
     </div>

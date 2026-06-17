@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>AUREA Cocina</title>
-  <link rel="stylesheet" href="/style.css?v=0.8.8" />
+  <link rel="stylesheet" href="/style.css?v=0.9.1" />
 </head>
 <body>
   <div id="toast" class="toast"></div>
@@ -35,31 +35,25 @@
         <div>
           <div class="pill" id="kitchenStaffName">Cocina</div>
           <h1 id="kitchenRestaurant">AUREA</h1>
-          <p class="muted" style="line-height:1.5; margin:0;">Comandas visuales: pendientes, preparación y listas.</p>
+          <p class="muted" style="line-height:1.5; margin:0;">Comandas visuales por zona. Si activas auto impresión, las próximas comandas salen en papel para esta barra.</p>
+          <div id="kitchenStationScope" class="item-meta" style="margin-top:8px;"></div>
         </div>
         <div class="inline-actions end">
+          <label class="check-row kitchen-print-toggle">
+            <input id="autoPrintKitchen" type="checkbox" onchange="setKitchenAutoPrint(this.checked)" />
+            <span>Auto imprimir</span>
+          </label>
+          <button class="btn secondary small" onclick="printVisiblePendingTickets()">Imprimir pendientes</button>
+          <button class="btn ghost small" onclick="printKitchenTestTicket()">Probar ticket</button>
           <a class="btn secondary small" href="/staff.html" target="_blank">Meseros</a>
           <button class="btn ghost small" onclick="kitchenLogout()">Salir</button>
         </div>
       </div>
     </section>
 
-    <section class="grid">
-      <div class="col-4 card command-column">
-        <h2>Pendientes</h2>
-        <div id="kitchenNew" class="list"></div>
-      </div>
-      <div class="col-4 card command-column">
-        <h2>En preparación</h2>
-        <div id="kitchenProgress" class="list"></div>
-      </div>
-      <div class="col-4 card command-column">
-        <h2>Listas</h2>
-        <div id="kitchenReady" class="list"></div>
-      </div>
-    </section>
+    <section id="kitchenStationGrid" class="grid"></section>
   </main>
 
-  <script src="/kitchen.js?v=0.8.8"></script>
+  <script src="/kitchen.js?v=0.9.1"></script>
 </body>
 </html>

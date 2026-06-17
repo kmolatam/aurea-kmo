@@ -171,7 +171,7 @@ function ensureDbShape(db) {
   db.restaurant.printSettings = db.restaurant.printSettings || {};
   db.restaurant.printSettings = {
     kitchenAutoPrintEnabled: db.restaurant.printSettings.kitchenAutoPrintEnabled !== false,
-    ticketWidthMm: Math.max(58, Math.min(80, Number(db.restaurant.printSettings.ticketWidthMm || 80)))
+    ticketWidthMm: Math.max(58, Math.min(80, Number(db.restaurant.printSettings.ticketWidthMm || 58)))
   };
   db.restaurant.instanceSlug = cleanSlug(db.restaurant.instanceSlug || db.restaurant.name || 'aurea-demo');
   db.restaurant.whatsappOfficial = db.restaurant.whatsappOfficial || {};
@@ -1211,7 +1211,7 @@ function computeStaffStats(db) {
 }
 
 app.get('/health', (req, res) => {
-  res.json({ ok: true, product: 'AUREA by KMO', version: '0.9.0-kitchen-autoprint' });
+  res.json({ ok: true, product: 'AUREA by KMO', version: '0.9.1-web-print-urovo' });
 });
 
 app.get('/t/:tableId', (req, res) => {
@@ -2059,7 +2059,7 @@ app.put('/api/admin/restaurant', requireLogin, (req, res) => {
     kitchenStations: req.body.kitchenStations !== undefined ? normalizeKitchenStations(req.body.kitchenStations) : normalizeKitchenStations(db.restaurant.kitchenStations),
     printSettings: {
       kitchenAutoPrintEnabled: req.body.printSettings?.kitchenAutoPrintEnabled !== false && req.body.printSettings?.kitchenAutoPrintEnabled !== 'false',
-      ticketWidthMm: Math.max(58, Math.min(80, Number(req.body.printSettings?.ticketWidthMm || db.restaurant.printSettings?.ticketWidthMm || 80)))
+      ticketWidthMm: Math.max(58, Math.min(80, Number(req.body.printSettings?.ticketWidthMm || db.restaurant.printSettings?.ticketWidthMm || 58)))
     },
     whatsappOfficial: {
       enabled: req.body.whatsappOfficial?.enabled === true || req.body.whatsappOfficial?.enabled === 'true',
@@ -2534,6 +2534,6 @@ app.patch('/api/admin/orders/:id', requireLogin, (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`AUREA by KMO v0.9.0-lalomita corriendo en http://localhost:${PORT}`);
+  console.log(`AUREA by KMO v0.9.1-web-print-urovo corriendo en http://localhost:${PORT}`);
   console.log(`Admin demo: usuario ${ADMIN_USER} / contraseña ${ADMIN_PASS}`);
 });

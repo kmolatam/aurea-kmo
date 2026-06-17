@@ -53,6 +53,256 @@ function statusLabel(status) {
   return labels[status] || status;
 }
 
+const AUTO_PRINT_KEY = 'aurea-kitchen-auto-print-v1';
+const PRINTED_TICKETS_KEY = 'aurea-kitchen-printed-tickets-v1';
+let autoPrintPrimed = false;
+
+function kitchenStations() {
+  const configured = kitchenDb?.restaurant?.kitchenStations;
+  if (Array.isArray(configured) && configured.length) return configured;
+  return [
+    { id: 'hot', label: 'Barra caliente', icon: '🔥' },
+    { id: 'cold', label: 'Barra fría', icon: '🥗' },
+    { id: 'drinks', label: 'Bebidas', icon: '🥤' }
+  ];
+}
+
+function normalizeStation(value) {
+  const raw = String(value || 'hot').trim().toLowerCase();
+  const found = kitchenStations().find(station => station.id === raw);
+  if (found) return found.id;
+  const alias = {
+    caliente: 'hot', 'barra caliente': 'hot', hot: 'hot', cocina: 'hot',
+    fria: 'cold', fría: 'cold', 'barra fria': 'cold', 'barra fría': 'cold', cold: 'cold',
+    bebida: 'drinks', bebidas: 'drinks', drinks: 'drinks', bar: 'drinks'
+  };
+  return alias[raw] || kitchenStations()[0]?.id || 'hot';
+}
+
+function stationById(stationId) {
+  const id = normalizeStation(stationId);
+  return kitchenStations().find(station => station.id === id) || kitchenStations()[0] || { id: 'hot', label: 'Barra caliente', icon: '🔥' };
+}
+
+function stationElementId(stationId) {
+  return `station-${String(stationId || 'hot').replace(/[^a-z0-9_-]/gi, '-')}`;
+}
+
+function visibleKitchenStations() {
+  const stations = kitchenStations();
+  const assigned = Array.isArray(kitchenDb?.staff?.kitchenStationIds) ? kitchenDb.staff.kitchenStationIds : [];
+  if (!assigned.length) return stations;
+  const allowed = new Set(assigned.map(normalizeStation));
+  return stations.filter(station => allowed.has(station.id));
+}
+
+function lineModifierText(item) {
+  return item?.modifierName ? ` · ${item.modifierGroupName || 'Opción'}: ${item.modifierName}` : '';
+}
+
+function ticketWidthMm() {
+  const value = Number(kitchenDb?.restaurant?.printSettings?.ticketWidthMm || 58);
+  return value === 80 ? 80 : 58;
+}
+
+function ticketPrintStyles(width = ticketWidthMm()) {
+  const bodyWidth = width === 58 ? 48 : 72;
+  const brandSize = width === 58 ? 17 : 20;
+  const baseSize = width === 58 ? 11 : 12;
+  const strongSize = width === 58 ? 14 : 15;
+  return `
+    @page{size:${width}mm auto;margin:0}
+    *{box-sizing:border-box}
+    html,body{margin:0;padding:0;background:#fff;color:#111}
+    body{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Courier New",monospace;width:${bodyWidth}mm;margin:0 auto;font-size:${baseSize}px;line-height:1.28;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    .ticket{padding:3mm 1mm 4mm}.center{text-align:center}.brand{font-size:${brandSize}px;font-weight:900;letter-spacing:.06em}.muted{color:#555}.line{border-top:1px dashed #222;margin:7px 0}.row{display:flex;justify-content:space-between;gap:6px}.item{margin:7px 0;break-inside:avoid}.item strong{font-size:${strongSize}px}.item small{display:block;color:#555;margin-top:2px}.station{font-size:${width === 58 ? 14 : 16}px;font-weight:900}.footer{margin-top:8px;text-align:center;font-size:10px;color:#555}.print-actions{display:grid;gap:8px;margin-top:12px}.print-actions button{width:100%;padding:10px;border:0;border-radius:10px;background:#111;color:#fff;font-weight:800}
+    @media print{.print-actions{display:none!important}body{width:${bodyWidth}mm}.ticket{padding:2mm 0}}
+  `;
+}
+
+function ticketDocument(title, bodyHtml, footer = 'Ticket de producción') {
+  const restaurant = kitchenDb?.restaurant?.name || 'AUREA';
+  const width = ticketWidthMm();
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escapeHtml(title)}</title><style>${ticketPrintStyles(width)}</style></head><body><div class="ticket"><div class="center"><div class="brand">${escapeHtml(restaurant)}</div><div class="muted">AUREA by KMO</div></div><div class="line"></div>${bodyHtml}<div class="line"></div><div class="footer">${escapeHtml(footer)}</div><div class="print-actions"><button onclick="window.print()">Imprimir</button><button onclick="window.close()">Cerrar</button></div></div><script>window.addEventListener('load',()=>setTimeout(()=>{window.focus();window.print()},450));<\/script></body></html>`;
+}
+
+function printHtmlDocument(title, bodyHtml, options = {}) {
+  const html = ticketDocument(title, bodyHtml, options.footer || 'Ticket de producción');
+  if (options.auto) {
+    const iframe = document.createElement('iframe');
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '1px';
+    iframe.style.height = '1px';
+    iframe.style.opacity = '0.01';
+    iframe.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(iframe);
+    const doc = iframe.contentWindow?.document;
+    if (!doc) return false;
+    const autoHtml = html
+      .replace(/<div class="print-actions">[\s\S]*?<\/div>/, '')
+      .replace(/<script>[\s\S]*?<\/script>/, '');
+    doc.open();
+    doc.write(autoHtml);
+    doc.close();
+    setTimeout(() => {
+      try {
+        iframe.contentWindow.focus();
+        iframe.contentWindow.print();
+      } catch (error) {
+        console.warn('No se pudo autoimprimir', error);
+      }
+      setTimeout(() => iframe.remove(), 9000);
+    }, 650);
+    return true;
+  }
+
+  const w = window.open('', '_blank', 'width=420,height=720');
+  if (!w) {
+    toast('El navegador bloqueó la ventana de impresión. Permite ventanas emergentes o usa el botón de impresión manual.');
+    return false;
+  }
+  w.document.write(html);
+  w.document.close();
+  return true;
+}
+
+function printKitchenTicket(orderId, stationId = '', options = {}) {
+  const order = (kitchenDb.orders || []).find(item => item.id === orderId);
+  if (!order) {
+    if (!options.auto) toast('Comanda no encontrada');
+    return false;
+  }
+  const station = stationById(stationId);
+  const lines = (order.items || []).filter(item => !stationId || normalizeStation(item.kitchenStation) === station.id);
+  if (!lines.length) return false;
+  const items = lines.map(item => `
+    <div class="item"><strong>${escapeHtml(item.qty)}× ${escapeHtml(item.name)}</strong>${item.modifierName ? `<small>${escapeHtml(item.modifierGroupName || 'Opción')}: ${escapeHtml(item.modifierName)}</small>` : ''}${item.note ? `<small>Nota: ${escapeHtml(item.note)}</small>` : ''}${item.dinerName ? `<small>Cuenta: ${escapeHtml(item.dinerName)}</small>` : ''}</div>
+  `).join('');
+  return printHtmlDocument(`Comanda #${order.commandNumber || ''}`, `
+    <div class="center"><strong>COMANDA #${escapeHtml(order.commandNumber || '-')}</strong><br><span>${escapeHtml(order.tableName || 'Mesa')}</span><br><span class="station">${escapeHtml(station.icon ? `${station.icon} ${station.label}` : station.label)}</span><br><span class="muted">${dateTime(order.createdAt)}</span></div>
+    <div class="line"></div>${items}
+    ${order.note ? `<div class="line"></div><div><strong>Nota:</strong> ${escapeHtml(order.note)}</div>` : ''}
+  `, options);
+}
+
+function printKitchenTestTicket() {
+  const firstStation = visibleKitchenStations()[0] || { id: 'hot', label: 'Barra caliente', icon: '🔥' };
+  return printHtmlDocument('Prueba impresión AUREA', `
+    <div class="center"><strong>PRUEBA DE IMPRESIÓN</strong><br><span class="station">${escapeHtml(firstStation.icon ? `${firstStation.icon} ${firstStation.label}` : firstStation.label)}</span><br><span class="muted">${dateTime(new Date())}</span></div>
+    <div class="line"></div>
+    <div class="item"><strong>1× Ticket de prueba</strong><small>Ancho configurado: ${ticketWidthMm()} mm</small><small>Si este ticket sale completo, cocina puede imprimir desde web.</small></div>
+    <div class="line"></div>
+    <div class="center"><strong>ÁUREA · OK</strong></div>
+  `, { footer: 'Módulo de impresión web' });
+}
+
+function autoPrintAllowedByRestaurant() {
+  return kitchenDb?.restaurant?.printSettings?.kitchenAutoPrintEnabled !== false;
+}
+
+function autoPrintEnabled() {
+  return autoPrintAllowedByRestaurant() && localStorage.getItem(AUTO_PRINT_KEY) === 'yes';
+}
+
+function printedTickets() {
+  try { return new Set(JSON.parse(localStorage.getItem(PRINTED_TICKETS_KEY) || '[]')); }
+  catch { return new Set(); }
+}
+
+function savePrintedTickets(set) {
+  localStorage.setItem(PRINTED_TICKETS_KEY, JSON.stringify(Array.from(set).slice(-500)));
+}
+
+function ticketKey(orderId, stationId) {
+  return `${orderId}:${stationId}`;
+}
+
+function activeKitchenOrders() {
+  return (kitchenDb?.orders || []).filter(order => !['delivered', 'cancelled'].includes(order.status));
+}
+
+function visibleTicketPairs(orders = activeKitchenOrders()) {
+  const stations = visibleKitchenStations();
+  const pairs = [];
+  for (const order of orders) {
+    for (const station of stations) {
+      if ((order.items || []).some(item => normalizeStation(item.kitchenStation) === station.id)) {
+        pairs.push({ order, station });
+      }
+    }
+  }
+  return pairs;
+}
+
+function primeCurrentTickets(orders = activeKitchenOrders()) {
+  const printed = printedTickets();
+  visibleTicketPairs(orders).forEach(({ order, station }) => printed.add(ticketKey(order.id, station.id)));
+  savePrintedTickets(printed);
+}
+
+function updateAutoPrintControls() {
+  const checkbox = document.getElementById('autoPrintKitchen');
+  if (checkbox) {
+    checkbox.checked = autoPrintEnabled();
+    checkbox.disabled = !autoPrintAllowedByRestaurant();
+  }
+  const scope = document.getElementById('kitchenStationScope');
+  if (scope) {
+    const stations = visibleKitchenStations();
+    const labels = stations.map(station => `${station.icon ? `${station.icon} ` : ''}${station.label}`).join(', ');
+    scope.textContent = autoPrintAllowedByRestaurant()
+      ? `Zona activa: ${labels || 'Todas'} · Auto impresión ${autoPrintEnabled() ? 'encendida' : 'apagada'}`
+      : `Zona activa: ${labels || 'Todas'} · Auto impresión desactivada por admin`;
+  }
+}
+
+function setKitchenAutoPrint(enabled) {
+  if (enabled && !autoPrintAllowedByRestaurant()) {
+    localStorage.setItem(AUTO_PRINT_KEY, 'no');
+    updateAutoPrintControls();
+    return toast('La autoimpresión está desactivada en configuración del restaurante.');
+  }
+  localStorage.setItem(AUTO_PRINT_KEY, enabled ? 'yes' : 'no');
+  autoPrintPrimed = false;
+  if (enabled) {
+    primeCurrentTickets();
+    autoPrintPrimed = true;
+    toast('Auto impresión activada. Las próximas comandas de esta zona se mandarán al ticket.');
+  } else {
+    toast('Auto impresión apagada');
+  }
+  updateAutoPrintControls();
+}
+
+function autoPrintPendingTickets(orders = activeKitchenOrders()) {
+  updateAutoPrintControls();
+  if (!autoPrintEnabled()) return;
+  if (!autoPrintPrimed) {
+    primeCurrentTickets(orders);
+    autoPrintPrimed = true;
+    return;
+  }
+  const printed = printedTickets();
+  for (const { order, station } of visibleTicketPairs(orders)) {
+    const key = ticketKey(order.id, station.id);
+    if (printed.has(key)) continue;
+    if (printKitchenTicket(order.id, station.id, { auto: true })) printed.add(key);
+  }
+  savePrintedTickets(printed);
+}
+
+function printVisiblePendingTickets() {
+  const pairs = visibleTicketPairs(activeKitchenOrders());
+  if (!pairs.length) return toast('No hay comandas pendientes para esta zona.');
+  const printed = printedTickets();
+  pairs.forEach(({ order, station }) => {
+    if (printKitchenTicket(order.id, station.id)) printed.add(ticketKey(order.id, station.id));
+  });
+  savePrintedTickets(printed);
+}
+
 async function checkKitchenSession() {
   const session = await api('/api/staff/session');
   if (session.isStaff) showKitchenApp();
@@ -87,19 +337,23 @@ function estimateActions(orderId) {
     </div>`;
 }
 
-function orderCard(order) {
+function stationOrderCard(order, stationId) {
+  const station = stationById(stationId);
+  const stationItems = (order.items || []).filter(item => normalizeStation(item.kitchenStation) === station.id);
+  if (!stationItems.length) return '';
   return `
-    <div class="item command-card" style="align-items:flex-start;">
+    <div class="item command-card station-ticket" style="align-items:flex-start;">
       <div class="item-main">
         <div class="item-title">#${escapeHtml(order.commandNumber || '-')} · ${escapeHtml(order.tableName)}</div>
         <div class="item-meta">${dateTime(order.createdAt)} · ${escapeHtml(statusLabel(order.status))}${order.estimatedTime ? ` · ${escapeHtml(order.estimatedTime)}` : ''}</div>
         <div style="margin-top:10px; display:grid; gap:8px;">
-          ${order.items.map(item => `<div><strong>${item.qty}× ${escapeHtml(item.name)}${item.dinerName ? ` · ${escapeHtml(item.dinerName)}` : ''}</strong>${item.note ? `<div class="item-meta">Nota: ${escapeHtml(item.note)}</div>` : ''}</div>`).join('')}
+          ${stationItems.map(item => `<div><strong>${item.qty}× ${escapeHtml(item.name)}${item.modifierName ? ` · ${escapeHtml(item.modifierName)}` : ''}${item.dinerName ? ` · ${escapeHtml(item.dinerName)}` : ''}</strong>${item.note ? `<div class="item-meta">Nota: ${escapeHtml(item.note)}</div>` : ''}</div>`).join('')}
         </div>
         ${order.note ? `<div class="item-meta" style="margin-top:8px;">Nota general: ${escapeHtml(order.note)}</div>` : ''}
         ${order.status === 'new' ? `<div style="margin-top:8px;"><span class="pill">Confirmar con tiempo estimado</span></div>${estimateActions(order.id)}` : ''}
       </div>
       <div class="inline-actions end">
+        <button class="btn small ghost" onclick="printKitchenTicket('${order.id}', '${station.id}')">Imprimir</button>
         <button class="btn small secondary" onclick="updateOrder('${order.id}', 'in_progress')">Preparar</button>
         <button class="btn small secondary" onclick="updateOrder('${order.id}', 'ready')">Listo</button>
         <button class="btn small success" onclick="updateOrder('${order.id}', 'delivered')">Entregado</button>
@@ -109,17 +363,34 @@ function orderCard(order) {
 }
 
 function renderKitchen() {
-  document.getElementById('kitchenStaffName').textContent = kitchenDb.staff?.name || 'Cocina';
+  document.getElementById('kitchenStaffName').textContent = `${kitchenDb.staff?.name || 'Cocina'}${kitchenDb.staff?.role ? ` · ${kitchenDb.staff.role}` : ''}`;
   document.getElementById('kitchenRestaurant').textContent = kitchenDb.restaurant?.name || 'AUREA';
-  const groups = {
-    kitchenNew: kitchenDb.orders.filter(o => ['new', 'confirmed'].includes(o.status)),
-    kitchenProgress: kitchenDb.orders.filter(o => o.status === 'in_progress'),
-    kitchenReady: kitchenDb.orders.filter(o => o.status === 'ready')
-  };
-  for (const [id, orders] of Object.entries(groups)) {
-    const el = document.getElementById(id);
-    el.innerHTML = orders.length ? orders.map(orderCard).join('') : '<div class="item"><div>Sin comandas.</div></div>';
+  const activeOrders = activeKitchenOrders();
+  const stations = visibleKitchenStations();
+  const grid = document.getElementById('kitchenStationGrid');
+  if (!grid) return;
+  grid.innerHTML = stations.map(station => {
+    const col = stations.length === 1 ? 'col-12' : stations.length === 2 ? 'col-6' : 'col-4';
+    return `
+      <div class="${col} card command-column station-column">
+        <h2>${escapeHtml(station.icon ? `${station.icon} ${station.label}` : station.label)}</h2>
+        <p class="muted mini-copy">Solo productos marcados para esta zona. La impresión de esta pantalla también respeta esta zona.</p>
+        <div id="${escapeHtml(stationElementId(station.id))}" class="list"></div>
+      </div>
+    `;
+  }).join('');
+
+  for (const station of stations) {
+    const el = document.getElementById(stationElementId(station.id));
+    if (!el) continue;
+    const html = activeOrders
+      .filter(order => (order.items || []).some(item => normalizeStation(item.kitchenStation) === station.id))
+      .map(order => stationOrderCard(order, station.id))
+      .filter(Boolean)
+      .join('');
+    el.innerHTML = html || '<div class="item"><div>Sin comandas para esta barra.</div></div>';
   }
+  autoPrintPendingTickets(activeOrders);
 }
 
 async function updateOrder(id, status, estimatedTime = undefined) {
@@ -160,7 +431,7 @@ checkKitchenSession();
 
 
 const AUREA_SUPPORT_WHATSAPP = '526601552214';
-const AUREA_RELEASE_VERSION = '0.8.8';
+const AUREA_RELEASE_VERSION = '0.9.1';
 
 function supportWhatsAppUrl(panel) {
   const restaurant = (typeof staffDb !== 'undefined' && staffDb?.restaurant?.name) || (typeof db !== 'undefined' && db?.restaurant?.name) || (typeof kitchenDb !== 'undefined' && kitchenDb?.restaurant?.name) || 'AUREA';
@@ -190,9 +461,9 @@ function releaseNotesFor(panel = 'panel') {
   }
   if (panel === 'kitchen') {
     return [
-      'Comandas más claras para cocina.',
-      'Botón de Ayuda visible para soporte inmediato.',
-      'Tour disponible por si entra personal nuevo.'
+      'Cocina separada por Barra caliente, Barra fría y Bebidas.',
+      'Cada barra ve solo los productos que le corresponden.',
+      'Impresión web térmica optimizada para 58 mm / Urovo.'
     ];
   }
   return [
@@ -248,9 +519,9 @@ function tourStepsFor(panel = 'panel') {
   if (panel === 'kitchen') {
     return [
       { selector: '.client-hero', title: 'Cocina', text: 'Aquí se ven las comandas que llegan desde QR o meseros.' },
-      { selector: '#kitchenNew', title: 'Nuevas', text: 'Confirma la comanda y asigna tiempo estimado.' },
-      { selector: '#kitchenProgress', title: 'En preparación', text: 'Marca como listo cuando cocina termine.' },
-      { selector: '#kitchenReady', title: 'Listas', text: 'Aquí quedan las comandas listas para entregar.' }
+      { selector: '#stationHot', title: 'Barra caliente', text: 'Aquí aparecen solo los productos marcados para barra caliente.' },
+      { selector: '#stationCold', title: 'Barra fría', text: 'Aquí aparecen solo productos fríos o salsas configuradas.' },
+      { selector: '#stationDrinks', title: 'Bebidas', text: 'Aquí aparecen bebidas y barra. Puedes imprimir ticket por barra.' }
     ];
   }
   return [
