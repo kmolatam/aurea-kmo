@@ -5,7 +5,7 @@ let tablesSignature = '';
 let crmFilter = 'all';
 let pendingLogoDataUrl = undefined;
 const qrCache = new Map();
-const ADMIN_JS_VERSION = '0.9.2-urovo-bridge';
+const ADMIN_JS_VERSION = '0.9.4';
 
 function money(value) {
   return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(value || 0);
@@ -1641,7 +1641,7 @@ checkSession();
 
 
 const AUREA_SUPPORT_WHATSAPP = '526601552214';
-const AUREA_RELEASE_VERSION = '0.9.1';
+const AUREA_RELEASE_VERSION = '0.9.4';
 
 function supportWhatsAppUrl(panel) {
   const restaurant = (typeof staffDb !== 'undefined' && staffDb?.restaurant?.name) || (typeof db !== 'undefined' && db?.restaurant?.name) || (typeof kitchenDb !== 'undefined' && kitchenDb?.restaurant?.name) || 'AUREA';

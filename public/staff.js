@@ -7,10 +7,25 @@ let currentStaffOrderDraft = [];
 let currentStaffCategoryId = '';
 let currentStaffEditingItemId = '';
 let guidedTourState = null;
-const STAFF_JS_VERSION = '0.9.2-urovo-bridge';
+const STAFF_JS_VERSION = '0.9.4';
 let notificationsBaselineReady = false;
 const seenAlertIds = new Set();
 const seenOrderIds = new Set();
+const STAFF_AUTO_BILL_PRINT_KEY = 'aurea-staff-auto-bill-print-v1';
+
+function staffAutoPrintedBills() {
+  try { return new Set(JSON.parse(localStorage.getItem(STAFF_AUTO_BILL_PRINT_KEY) || '[]')); }
+  catch { return new Set(); }
+}
+
+function saveStaffAutoPrintedBills(set) {
+  localStorage.setItem(STAFF_AUTO_BILL_PRINT_KEY, JSON.stringify(Array.from(set).slice(-250)));
+}
+
+function staffBillPrintKey(tableId) {
+  const session = (staffDb?.tableSessions || []).find(item => item.tableId === tableId && item.status === 'active');
+  return `${tableId}:${session?.id || 'active'}`;
+}
 
 function money(value) {
   return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(value || 0);
@@ -479,6 +494,21 @@ function openStaffBillModal(tableId) {
   ` : '<div class="item"><div>Esta mesa todavía no tiene productos registrados.</div></div>';
 
   document.getElementById('staffBillModal').classList.add('active');
+  autoPrintStaffBillIfNeeded(tableId);
+}
+
+function autoPrintStaffBillIfNeeded(tableId) {
+  const key = staffBillPrintKey(tableId);
+  const printed = staffAutoPrintedBills();
+  if (printed.has(key)) return;
+  printed.add(key);
+  saveStaffAutoPrintedBills(printed);
+  setTimeout(() => {
+    if (currentPaymentTableId === tableId) {
+      toast('Imprimiendo ticket de cuenta');
+      printStaffBillTicket();
+    }
+  }, 350);
 }
 
 function closeStaffBillModal() {
@@ -686,7 +716,13 @@ function selectStaffCategory(categoryId) {
 function openStaffItemEditor(itemId) {
   currentStaffEditingItemId = itemId;
   renderStaffOrderItems();
-  setTimeout(() => document.getElementById('staffQuickQty')?.focus(), 50);
+}
+
+function adjustStaffQuickQty(delta) {
+  const input = document.getElementById('staffQuickQty');
+  if (!input) return;
+  const next = Math.max(1, Math.min(20, Number(input.value || 1) + Number(delta || 0)));
+  input.value = String(next);
 }
 
 function closeStaffItemEditor() {
@@ -789,7 +825,11 @@ async function renderStaffOrderItems() {
           ` : ''}
           <div class="grid">
             <label class="col-4">Cantidad
-              <input id="staffQuickQty" class="input" type="number" min="1" max="20" value="1" />
+              <div class="qty-stepper">
+                <button type="button" class="btn secondary small" onclick="adjustStaffQuickQty(-1)">−</button>
+                <input id="staffQuickQty" class="input qty-display" type="text" inputmode="none" readonly value="1" aria-label="Cantidad" />
+                <button type="button" class="btn secondary small" onclick="adjustStaffQuickQty(1)">+</button>
+              </div>
             </label>
             <label class="col-4">Cuenta / persona
               <input id="staffQuickDiner" class="input" placeholder="Ej. Mesa, Eduardo, Joel..." />
@@ -997,7 +1037,7 @@ checkStaffSession();
 
 
 const AUREA_SUPPORT_WHATSAPP = '526601552214';
-const AUREA_RELEASE_VERSION = '0.9.1';
+const AUREA_RELEASE_VERSION = '0.9.4';
 
 function supportWhatsAppUrl(panel) {
   const restaurant = (typeof staffDb !== 'undefined' && staffDb?.restaurant?.name) || (typeof db !== 'undefined' && db?.restaurant?.name) || (typeof kitchenDb !== 'undefined' && kitchenDb?.restaurant?.name) || 'AUREA';

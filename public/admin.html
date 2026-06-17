@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>AUREA Admin · La Lomita</title>
-  <link rel="stylesheet" href="/style.css?v=0.9.3" />
+  <link rel="stylesheet" href="/style.css?v=0.9.4" />
 </head>
 <body>
   <div id="toast" class="toast"></div>
@@ -540,8 +540,13 @@
               <label>Nombre
                 <input class="input" id="staffName" placeholder="Ej. Carlos" />
               </label>
-              <label>Rol
-                <input class="input" id="staffRole" placeholder="Ej. Mesero / Cocina / Capitán" value="Mesero" />
+              <label>Tipo de trabajador
+                <select id="staffRole" class="input">
+                  <option value="Mesero">Mesero</option>
+                  <option value="Cocina">Cocina</option>
+                  <option value="Capitán">Capitán</option>
+                </select>
+                <small class="muted">Mesero usa /staff.html. Cocina usa /kitchen.html y puede limitarse a sus áreas.</small>
               </label>
               <div>
                 <label style="display:block; margin-bottom:8px;">Zonas de cocina asignadas</label>
@@ -618,7 +623,7 @@
   </div>
 
 
-  <script src="/aurea-print-bridge.js?v=0.9.3"></script>
-  <script src="/admin.js?v=0.9.3"></script>
+  <script src="/aurea-print-bridge.js?v=0.9.4"></script>
+  <script src="/admin.js?v=0.9.4"></script>
 </body>
 </html>

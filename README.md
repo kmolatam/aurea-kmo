@@ -122,3 +122,15 @@ Modo manual opcional en consola del navegador:
 - El puente web ahora manda `returnUrl` a la app `Áurea Print`.
 - Después de imprimir, la app actualizada puede regresar automáticamente a la página de AUREA donde estaba el usuario.
 - Requiere instalar `Áurea Print v0.2` o superior en el Urovo.
+
+
+## AUREA v0.9.4 · Operación restaurante
+
+Agrega ajustes operativos para campo:
+- Tickets de cuenta del mesero con impresión semi automática al generar cuenta.
+- Comandas de staff y cocina usando puente Áurea Print en Urovo cuando esté disponible.
+- Botones de cantidad con +/- para evitar que el teclado tape el flujo de pedido.
+- Tour y Ayuda se ocultan en pantallas pequeñas para no estorbar en teléfonos.
+- Más margen inferior en pantallas y modales para que el último pedido no quede pegado abajo.
+- Selector de tipo de trabajador: Mesero, Cocina o Capitán.
+- Mantiene áreas de cocina configurables desde Admin → Configuración y subdivisiones de platillo desde Admin → Menú.
