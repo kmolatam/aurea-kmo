@@ -1,0 +1,24 @@
+AUREA v0.9.9 - RESCATE ADMIN RAIZ
+
+IMPORTANTE:
+Este ZIP ya viene con los archivos en la RAIZ. No debe quedar una carpeta aurea098 adentro del repo.
+
+Para verificar que sí desplegó esta versión, abre:
+/api/aurea-version
+
+Debe decir:
+version: 0.9.9-admin-rescate-raiz
+
+Login normal:
+Usuario: lalomita
+Contraseña: 1564
+
+Login alternativo:
+Usuario: admin
+Contraseña: 1564
+
+Rescate directo si el formulario sigue fallando:
+/admin-rescate-1564
+
+Cuando ya recuperes el admin, puedes desactivar rescate en Coolify con:
+AUREA_DISABLE_RESCUE_LOGIN=true

