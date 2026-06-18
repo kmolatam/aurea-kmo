@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>AUREA Staff</title>
-  <link rel="stylesheet" href="/style.css?v=0.9.154" />
+  <link rel="stylesheet" href="/style.css?v=0.9.16" />
   <script>
     if (!String.prototype.replaceAll) {
       String.prototype.replaceAll = function(search, replacement) {
@@ -50,6 +50,27 @@
       </div>
     </section>
 
+
+
+
+    <section id="posQuickPanel" class="card pos-quick-panel" style="display:none; margin-bottom:14px;">
+      <div class="section-head compact-head">
+        <div>
+          <h2 style="margin:0;">POS rápido</h2>
+          <p class="muted" style="margin:4px 0 0; line-height:1.35;">Pedido manual, cuenta y ticket desde una sola pantalla.</p>
+        </div>
+        <span class="pill">terminal</span>
+      </div>
+      <div class="pos-control-grid">
+        <label>Mesa
+          <select id="staffPosTableSelect"></select>
+        </label>
+        <button class="btn success pos-big-btn" type="button" onclick="openPosManualOrder()">+ Pedido manual</button>
+        <button class="btn secondary pos-big-btn" type="button" onclick="openPosBill()">Generar cuenta</button>
+        <button class="btn pos-big-btn" type="button" onclick="printPosBill()">Imprimir ticket</button>
+      </div>
+      <div class="muted pos-help">Tip: primero elige mesa, luego crea pedido. Para cobrar, usa Generar cuenta o Imprimir ticket.</div>
+    </section>
 
     <section id="notificationPrompt" class="card notification-card" style="display:none; margin-bottom:14px;">
       <div class="section-head">
@@ -199,7 +220,7 @@
   </div>
 
 
-  <script src="/aurea-print-bridge.js?v=0.9.15"></script>
-  <script src="/staff.js?v=0.9.15"></script>
+  <script src="/aurea-print-bridge.js?v=0.9.16"></script>
+  <script src="/staff.js?v=0.9.16"></script>
 </body>
 </html>

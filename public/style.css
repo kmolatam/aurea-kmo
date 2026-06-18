@@ -1600,3 +1600,30 @@ select option { color: #111; }
     grid-template-columns: 1fr;
   }
 }
+
+
+/* AUREA v0.9.16 - POS funciones reales */
+body.pos-mode #notificationPrompt { display:none !important; }
+body.pos-mode .client-hero { padding: 16px; margin-bottom: 12px; }
+body.pos-mode .client-hero p { display:none; }
+body.pos-mode .client-hero .inline-actions { margin-top:10px !important; }
+.pos-quick-panel { border-color: rgba(201,164,76,.38); background: linear-gradient(180deg, rgba(201,164,76,.08), rgba(255,255,255,.035)); }
+.compact-head { margin-bottom:10px; }
+.pos-control-grid { display:grid; grid-template-columns: 1.2fr repeat(3, minmax(120px, .8fr)); gap:10px; align-items:end; }
+.pos-big-btn { min-height:48px; white-space:normal; line-height:1.1; }
+.pos-help { margin-top:8px; font-size:12px; }
+.qty-stepper { display:grid; grid-template-columns:44px 1fr 44px; gap:8px; align-items:center; }
+.qty-stepper input { text-align:center; font-size:18px; font-weight:900; }
+#staffOrderModal .modal { max-height: 94vh; padding:14px; }
+#staffOrderModal .section-head { margin-bottom:8px; }
+#staffOrderModal .modal > p.muted { margin-bottom:10px !important; }
+.order-wizard .wizard-step p { margin:2px 0 0; }
+@media (max-width: 760px) {
+  .pos-control-grid { grid-template-columns: 1fr 1fr; }
+  .pos-control-grid label { grid-column: span 2; }
+  .pos-big-btn { min-height:52px; }
+}
+@media (max-width: 460px) {
+  .pos-control-grid { grid-template-columns: 1fr; }
+  .pos-control-grid label { grid-column: auto; }
+}

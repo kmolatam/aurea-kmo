@@ -1237,7 +1237,7 @@ function computeStaffStats(db) {
 }
 
 app.get('/health', (req, res) => {
-  res.json({ ok: true, product: 'AUREA by KMO', version: '0.9.2-urovo-bridge' });
+  res.json({ ok: true, product: 'AUREA by KMO', version: '0.9.16-pos-funciones-reales' });
 });
 
 app.get('/t/:tableId', (req, res) => {
@@ -2572,6 +2572,6 @@ app.patch('/api/admin/orders/:id', requireLogin, (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`AUREA by KMO v0.9.1-web-print-urovo corriendo en http://localhost:${PORT}`);
+  console.log(`AUREA by KMO v0.9.16-pos-funciones-reales corriendo en http://localhost:${PORT}`);
   console.log(`Admin demo: usuario ${ADMIN_USER} / contraseña ${ADMIN_PASS}`);
 });

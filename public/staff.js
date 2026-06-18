@@ -7,11 +7,24 @@ let currentStaffOrderDraft = [];
 let currentStaffCategoryId = '';
 let currentStaffEditingItemId = '';
 let guidedTourState = null;
-const STAFF_JS_VERSION = '0.9.15-pos-unificado';
+const STAFF_JS_VERSION = '0.9.16-pos-funciones-reales';
 let notificationsBaselineReady = false;
 const seenAlertIds = new Set();
 const seenOrderIds = new Set();
 const STAFF_AUTO_BILL_PRINT_KEY = 'aurea-staff-auto-bill-print-v1';
+
+function isStaffPosMode() {
+  try {
+    const params = new URLSearchParams(location.search || '');
+    return params.get('pos') === '1' || params.get('print') === 'bridge' || params.get('posui') === 'compact' || Boolean(window.AureaPosPrint);
+  } catch {
+    return Boolean(window.AureaPosPrint);
+  }
+}
+
+function selectedPosTableId() {
+  return document.getElementById('staffPosTableSelect')?.value || (staffDb?.tables || [])[0]?.id || '';
+}
 
 function staffAutoPrintedBills() {
   try { return new Set(JSON.parse(localStorage.getItem(STAFF_AUTO_BILL_PRINT_KEY) || '[]')); }
@@ -301,10 +314,11 @@ async function checkStaffSession() {
 function showStaffApp() {
   document.getElementById('staffLogin').style.display = 'none';
   document.getElementById('staffApp').style.display = 'block';
+  if (isStaffPosMode()) document.body.classList.add('pos-mode');
   ensureAureaAssist('staff');
-  showAureaReleaseNotesOnce('staff');
+  if (!isStaffPosMode()) showAureaReleaseNotesOnce('staff');
   updateNotificationPrompt();
-  if (canUseNotifications() && Notification.permission !== 'granted') {
+  if (!isStaffPosMode() && canUseNotifications() && Notification.permission !== 'granted') {
     toast('Tip: activa notificaciones para recibir comandas y alertas en tiempo real.');
   }
   loadStaffData();
@@ -331,6 +345,7 @@ function renderStaff() {
   const mySessions = (staffDb.tableSessions || []).filter(session => session.status === 'active' && session.assignedStaffId === staffDb.staff?.id);
   document.getElementById('staffTableCount').textContent = `${mySessions.length} activa${mySessions.length === 1 ? '' : 's'}`;
   renderSessions();
+  renderPosQuickPanel();
   renderStaffStats();
   renderAlerts();
   renderOrders();
@@ -348,6 +363,10 @@ function updateNotificationPrompt() {
   const box = document.getElementById('notificationPrompt');
   const btn = document.getElementById('enableNotificationsBtn');
   if (!box || !btn) return;
+  if (isStaffPosMode()) {
+    box.style.display = 'none';
+    return;
+  }
   if (!canUseNotifications()) {
     box.style.display = 'block';
     btn.disabled = true;
@@ -658,6 +677,49 @@ function categoryName(categoryId) {
 }
 
 
+function renderPosQuickPanel() {
+  const panel = document.getElementById('posQuickPanel');
+  const select = document.getElementById('staffPosTableSelect');
+  if (!panel || !select) return;
+  if (!isStaffPosMode()) {
+    panel.style.display = 'none';
+    return;
+  }
+  panel.style.display = 'block';
+  const previous = select.value;
+  const tables = staffDb?.tables || [];
+  select.innerHTML = tables.length
+    ? tables.map(table => {
+        const session = (staffDb.tableSessions || []).find(item => item.tableId === table.id && item.status === 'active');
+        const total = staffTableSubtotal(table.id);
+        const label = `${table.name}${session ? ' · activa' : ''}${total ? ` · ${money(total)}` : ''}`;
+        return `<option value="${escapeHtml(table.id)}">${escapeHtml(label)}</option>`;
+      }).join('')
+    : '<option value="">No hay mesas configuradas</option>';
+  if (previous && tables.some(table => table.id === previous)) select.value = previous;
+}
+
+function openPosManualOrder() {
+  const tableId = selectedPosTableId();
+  if (!tableId) return toast('Primero configura mesas en Admin');
+  openManualOrderModal(tableId);
+}
+
+function openPosBill() {
+  const tableId = selectedPosTableId();
+  if (!tableId) return toast('Selecciona una mesa');
+  openStaffBillModal(tableId);
+}
+
+function printPosBill() {
+  const tableId = selectedPosTableId();
+  if (!tableId) return toast('Selecciona una mesa');
+  currentPaymentTableId = tableId;
+  const lines = billLinesForTable(tableId);
+  if (!lines.length) return toast('Esa mesa aún no tiene productos para imprimir');
+  printStaffBillTicket();
+}
+
 function fillManualTableSelect(selectedId = '') {
   const select = document.getElementById('staffManualTableSelect');
   if (!select) return;
@@ -667,11 +729,11 @@ function fillManualTableSelect(selectedId = '') {
     : '<option value="">No hay mesas configuradas</option>';
 }
 
-function openManualOrderModal() {
+function openManualOrderModal(preselectedTableId = '') {
   resetStaffOrderDraft();
   currentOrderMode = 'manual';
   const firstTable = (staffDb?.tables || [])[0];
-  currentStaffOrderTableId = firstTable?.id || null;
+  currentStaffOrderTableId = preselectedTableId || firstTable?.id || null;
   fillManualTableSelect(currentStaffOrderTableId);
   const manualFields = document.getElementById('manualOrderFields');
   if (manualFields) manualFields.style.display = 'grid';
@@ -796,7 +858,7 @@ function openStaffItemEditor(itemId) {
   currentStaffEditingItemId = itemId;
   renderStaffOrderItems();
   setTimeout(() => {
-    document.querySelector('.quick-item-editor')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    document.querySelector('.quick-item-editor')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }, 30);
 }
 
@@ -859,7 +921,11 @@ function staffItemEditorHtml(editingItem) {
       ` : ''}
       <div class="quick-qty-row">
         <label>Cantidad
-          <input id="staffQuickQty" class="input" type="number" min="1" max="20" value="1" />
+          <div class="qty-stepper">
+            <button type="button" class="btn ghost small" onclick="adjustStaffQuickQty(-1)">−</button>
+            <input id="staffQuickQty" class="input" type="number" min="1" max="20" value="1" />
+            <button type="button" class="btn ghost small" onclick="adjustStaffQuickQty(1)">+</button>
+          </div>
         </label>
         <label>Cuenta / persona
           <input id="staffQuickDiner" class="input" placeholder="Ej. Mesa, Eduardo..." />
