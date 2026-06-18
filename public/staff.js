@@ -7,7 +7,7 @@ let currentStaffOrderDraft = [];
 let currentStaffCategoryId = '';
 let currentStaffEditingItemId = '';
 let guidedTourState = null;
-const STAFF_JS_VERSION = '0.9.17-cocina-zonas-fix';
+const STAFF_JS_VERSION = '0.9.18-entrega-rapida';
 let notificationsBaselineReady = false;
 const seenAlertIds = new Set();
 const seenOrderIds = new Set();
@@ -291,6 +291,15 @@ function printStaffOrderTicket(orderId) {
   });
 }
 
+function suggestedTipAmount(total, percent) {
+  return Math.round((Number(total || 0) * Number(percent || 0) / 100 + Number.EPSILON) * 100) / 100;
+}
+
+function printStaffBillTicketForTable(tableId) {
+  currentPaymentTableId = tableId;
+  printStaffBillTicket();
+}
+
 function printStaffBillTicket() {
   if (!currentPaymentTableId) return toast('Abre una cuenta primero');
   const session = (staffDb.tableSessions || []).find(item => item.tableId === currentPaymentTableId && item.status === 'active');
@@ -298,18 +307,21 @@ function printStaffBillTicket() {
   const lines = billLinesForTable(currentPaymentTableId);
   const total = lines.reduce((sum, line) => sum + Number(line.subtotal || 0), 0);
   const tableName = session?.tableName || table?.name || 'Mesa';
-  const note = 'Cuenta estimada. Admin/capitán confirma el cierre final.';
+  const suggestedTips = [10, 15, 20].map(percent => ({ percent, amount: suggestedTipAmount(total, percent), total: total + suggestedTipAmount(total, percent) }));
+  const note = 'Propina sugerida opcional. El total de consumo no incluye propina.';
   const items = lines.map(line => `
     <div class="item"><div class="row"><span>${escapeHtml(line.qty)}× ${escapeHtml(line.name)}</span><strong>${money(line.subtotal)}</strong></div>${line.modifierName ? `<small>${escapeHtml(line.modifierGroupName || 'Opción')}: ${escapeHtml(line.modifierName)}</small>` : ''}${line.note ? `<small>Nota: ${escapeHtml(line.note)}</small>` : ''}${line.dinerName ? `<small>Cuenta: ${escapeHtml(line.dinerName)}</small>` : ''}</div>
   `).join('');
+  const tipRows = suggestedTips.map(tip => `<div class="row"><span>Propina sugerida ${tip.percent}%</span><span>${money(tip.amount)}</span></div>`).join('');
   const bodyHtml = `
-    <div class="center"><strong>TICKET DE CUENTA</strong><br><span>${escapeHtml(tableName)}</span><br><span class="muted">${dateTime(new Date())}</span></div>
+    <div class="center"><strong>TICKET OFICIAL</strong><br><span>${escapeHtml(tableName)}</span><br><span class="muted">${dateTime(new Date())}</span></div>
     <div class="line"></div>${items || '<div class="center muted">Sin productos</div>'}
-    <div class="line"></div><div class="row total"><span>Total</span><span>${money(total)}</span></div>
+    <div class="line"></div><div class="row total"><span>TOTAL CONSUMO</span><span>${money(total)}</span></div>
+    <div class="line"></div><div><strong>Propina sugerida (opcional)</strong></div>${tipRows}
     <div class="muted" style="margin-top:6px">${note}</div>
   `;
   const bridgeText = window.AureaPrintBridge?.buildBillTicketText
-    ? window.AureaPrintBridge.buildBillTicketText({ tableName, items: lines, total, note }, {
+    ? window.AureaPrintBridge.buildBillTicketText({ tableName, items: lines, total, suggestedTips, note }, {
         restaurantName: staffDb?.restaurant?.name || 'AUREA',
         ticketWidthMm: ticketWidthMm(),
         footer: 'Gracias por su preferencia'
@@ -470,20 +482,20 @@ function renderSessions() {
 
   el.innerHTML = sessions.map(session => {
     const mine = session.assignedStaffId === staffId;
+    const paid = session.paymentStatus === 'paid';
     return `
       <div class="item">
         <div class="item-main">
           <div class="item-title">${escapeHtml(session.tableName)} · ${escapeHtml(session.customerName || 'Cliente sin nombre')}</div>
           <div class="item-meta">${session.customerPhone ? `WhatsApp: ${escapeHtml(session.customerPhone)} · ` : ''}${mine ? 'Asignada a ti' : 'Sin asignar'} · ${dateTime(session.createdAt)}</div>
+          ${paid ? '<div style="margin-top:6px;"><span class="pill">Pago registrado</span></div>' : ''}
         </div>
         <div class="inline-actions end">
           ${mine ? `
             <button class="btn small secondary" onclick="openStaffOrderModal('${session.tableId}')">Nuevo pedido</button>
-            ${session.paymentStatus === 'paid'
-              ? `<span class="pill">Pago autorizado</span><button class="btn small success" onclick="closeTable('${session.tableId}')">Cerrar mesa</button>`
-              : session.paymentStatus === 'pending_approval'
-                ? '<span class="pill">Pendiente autorización</span>'
-                : `<button class="btn small secondary" onclick="openStaffBillModal('${session.tableId}')">Generar cuenta</button>`}
+            <button class="btn small secondary" onclick="openStaffBillModal('${session.tableId}')">Generar cuenta</button>
+            <button class="btn small" onclick="printStaffBillTicketForTable('${session.tableId}')">Imprimir ticket</button>
+            ${paid ? `<button class="btn small success" onclick="closeTable('${session.tableId}')">Cerrar mesa</button>` : ''}
           ` : `<button class="btn small success" onclick="takeTable('${session.tableId}')">Tomar mesa</button>`}
         </div>
       </div>
@@ -545,9 +557,11 @@ function activeOrdersForTable(tableId) {
 function billLinesForTable(tableId) {
   const lines = [];
   for (const order of activeOrdersForTable(tableId)) {
-    for (const item of order.items || []) {
+    (order.items || []).forEach((item, itemIndex) => {
+      if (item.cancelled) return;
       lines.push({
         orderId: order.id,
+        itemIndex,
         commandNumber: order.commandNumber || '',
         name: item.name || 'Producto',
         qty: Number(item.qty || 0),
@@ -558,7 +572,7 @@ function billLinesForTable(tableId) {
         modifierGroupName: item.modifierGroupName || 'Opción',
         dinerName: item.dinerName || item.personName || ''
       });
-    }
+    });
   }
   return lines;
 }
@@ -594,6 +608,7 @@ function openStaffBillModal(tableId) {
         <div class="bill-line">
           <span>${escapeHtml(line.qty)} × ${escapeHtml(line.name)}${line.modifierName ? ` · ${escapeHtml(line.modifierName)}` : ''}${line.dinerName ? ` · ${escapeHtml(line.dinerName)}` : ''}</span>
           <strong>${money(line.subtotal)}</strong>
+          <button class="btn danger small" type="button" onclick="cancelStaffBillItem('${line.orderId}', ${Number(line.itemIndex || 0)})">Cancelar</button>
         </div>
       `).join('')}
     </div>
@@ -642,7 +657,7 @@ function openStaffPaymentModal(tableId) {
   const session = (staffDb.tableSessions || []).find(item => item.tableId === tableId && item.status === 'active');
   const table = (staffDb.tables || []).find(item => item.id === tableId);
   const subtotal = staffTableSubtotal(tableId);
-  document.getElementById('staffPaymentTableName').textContent = `${session?.tableName || table?.name || 'Mesa'} · Total estimado ${money(subtotal)}`;
+  document.getElementById('staffPaymentTableName').textContent = `${session?.tableName || table?.name || 'Mesa'} · Total ${money(subtotal)}`;
   document.getElementById('staffPaymentMethod').value = 'cash';
   document.getElementById('staffPaymentAmount').value = subtotal ? String(subtotal) : '';
   document.getElementById('staffPaymentTip').value = '';
@@ -670,7 +685,7 @@ async function submitStaffPayment() {
       })
     });
     closeStaffPaymentModal();
-    toast('Cuenta enviada a autorización');
+    toast('Pago registrado');
     await loadStaffData();
   } catch (error) {
     toast(error.message);
@@ -1165,6 +1180,19 @@ async function updateAlert(id, status) {
   await loadStaffData();
 }
 
+async function cancelStaffBillItem(orderId, itemIndex) {
+  if (!confirm('¿Cancelar este producto? Se quitará de cocina y de la cuenta.')) return;
+  try {
+    await api(`/api/staff/orders/${orderId}/items/${itemIndex}`, { method: 'DELETE' });
+    toast('Producto cancelado');
+    const tableId = currentPaymentTableId;
+    await loadStaffData();
+    if (tableId) openStaffBillModal(tableId);
+  } catch (error) {
+    toast(error.message);
+  }
+}
+
 async function updateOrder(id, status, estimatedTime = undefined) {
   await api(`/api/staff/orders/${id}`, { method: 'PATCH', body: JSON.stringify({ status, estimatedTime }) });
   await loadStaffData();
@@ -1209,7 +1237,7 @@ checkStaffSession();
 
 
 const AUREA_SUPPORT_WHATSAPP = '526601552214';
-const AUREA_RELEASE_VERSION = '0.9.17';
+const AUREA_RELEASE_VERSION = '0.9.18';
 
 function supportWhatsAppUrl(panel) {
   const restaurant = (typeof staffDb !== 'undefined' && staffDb?.restaurant?.name) || (typeof db !== 'undefined' && db?.restaurant?.name) || (typeof kitchenDb !== 'undefined' && kitchenDb?.restaurant?.name) || 'AUREA';
@@ -1246,7 +1274,7 @@ function releaseNotesFor(panel = 'panel') {
   }
   return [
     'Corte diario con pagos, egresos y cierre de caja.',
-    'Pagos de mesero requieren autorización de admin/capitán.',
+    'Meseros pueden imprimir ticket y registrar pago sin autorización.',
     'Nuevo flujo de pedidos más simple para el equipo.'
   ];
 }

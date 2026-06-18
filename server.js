@@ -162,7 +162,7 @@ app.use((req, res, next) => {
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.get('/api/aurea-version', (req, res) => {
-  res.json({ ok: true, version: '0.9.17-cocina-zonas-fix', rescueLogin: process.env.AUREA_DISABLE_RESCUE_LOGIN !== 'true' });
+  res.json({ ok: true, version: '0.9.18-cocina-zonas-fix', rescueLogin: process.env.AUREA_DISABLE_RESCUE_LOGIN !== 'true' });
 });
 
 app.get('/admin-rescate-1564', (req, res) => {
@@ -607,8 +607,8 @@ function buildBillSummary(db, tableId) {
     subtotal,
     splitAccounts: splitAccountsFromLines(lines),
     diners: session?.diners || [],
-    source: 'aurea_estimated',
-    disclaimer: 'Cuenta estimada con base en pedidos registrados en AUREA. Un mesero confirmará el total final.'
+    source: 'aurea_official',
+    disclaimer: 'Ticket oficial generado con base en pedidos registrados en AUREA.'
   };
 }
 
@@ -1237,7 +1237,7 @@ function computeStaffStats(db) {
 }
 
 app.get('/health', (req, res) => {
-  res.json({ ok: true, product: 'AUREA by KMO', version: '0.9.17-cocina-zonas-fix' });
+  res.json({ ok: true, product: 'AUREA by KMO', version: '0.9.18-cocina-zonas-fix' });
 });
 
 app.get('/t/:tableId', (req, res) => {
@@ -1434,6 +1434,28 @@ app.patch('/api/staff/orders/:id', requireStaff, (req, res) => {
   updateOrderStatus(order, req.body.status, req.body.estimatedTime);
   writeDb(db);
   res.json({ ok: true, order });
+});
+
+app.delete('/api/staff/orders/:id/items/:itemIndex', requireStaff, (req, res) => {
+  const db = readDb();
+  const order = db.orders.find(o => o.id === req.params.id);
+  if (!order) return res.status(404).json({ ok: false, message: 'Pedido no encontrado' });
+  const session = activeSessionForTable(db, order.tableId);
+  if (session?.assignedStaffId && session.assignedStaffId !== req.session.staffId) {
+    return res.status(403).json({ ok: false, message: 'Solo el mesero asignado puede cancelar productos de esta mesa' });
+  }
+  const index = Number(req.params.itemIndex);
+  if (!Number.isInteger(index) || index < 0 || index >= (order.items || []).length) {
+    return res.status(400).json({ ok: false, message: 'Producto no encontrado en la comanda' });
+  }
+  const removed = order.items.splice(index, 1)[0];
+  order.total = roundMoney((order.items || []).reduce((sum, item) => sum + Number(item.subtotal !== undefined ? item.subtotal : Number(item.price || 0) * Number(item.qty || 0)), 0));
+  order.updatedAt = nowIso();
+  order.cancelledItems = Array.isArray(order.cancelledItems) ? order.cancelledItems : [];
+  order.cancelledItems.push({ ...removed, cancelledAt: nowIso(), cancelledByStaffId: req.session.staffId || '' });
+  if (!order.items.length) updateOrderStatus(order, 'cancelled');
+  writeDb(db);
+  res.json({ ok: true, order, cancelledItem: removed });
 });
 
 
@@ -2303,34 +2325,20 @@ app.post('/api/staff/tables/:tableId/paid', requireStaff, (req, res) => {
   const staff = db.staff.find(member => member.id === req.session.staffId);
   const payment = upsertSessionPayment(db, req.params.tableId, session, {
     ...req.body,
-    status: 'pending_admin',
+    status: 'approved',
     businessDate: businessDate()
   }, { staffId: staff?.id || '', staffName: staff?.name || 'staff', role: 'staff' });
 
   for (const request of db.billRequests || []) {
     if ((request.sessionId && request.sessionId === session.id) || request.tableId === req.params.tableId) {
-      if (['new', 'in_progress'].includes(request.status || 'new')) {
-        request.status = 'pending_admin';
+      if (['new', 'in_progress', 'pending_admin'].includes(request.status || 'new')) {
+        request.status = 'done';
         request.updatedAt = nowIso();
       }
     }
   }
-  db.alerts.unshift({
-    id: makeId('alert'),
-    tableId: session.tableId,
-    tableName: session.tableName,
-    sessionId: session.id,
-    type: 'bill',
-    note: `Pago capturado por ${staff?.name || 'staff'} · ${payment.methodLabel} · ${paymentMethodLabelFull(payment.method)} · Total ${payment.totalDue}`,
-    status: 'new',
-    assignedStaffId: session.assignedStaffId || staff?.id || '',
-    assignedStaffName: session.assignedStaffName || staff?.name || '',
-    createdAt: nowIso(),
-    updatedAt: nowIso(),
-    paymentId: payment.id
-  });
   writeDb(db);
-  res.json({ ok: true, session, payment, message: 'Pago capturado. Falta autorización de admin.' });
+  res.json({ ok: true, session, payment, message: 'Pago registrado.' });
 });
 
 app.post('/api/staff/tables/:tableId/close', requireStaff, (req, res) => {
@@ -2572,6 +2580,6 @@ app.patch('/api/admin/orders/:id', requireLogin, (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`AUREA by KMO v0.9.17-cocina-zonas-fix corriendo en http://localhost:${PORT}`);
+  console.log(`AUREA by KMO v0.9.18-cocina-zonas-fix corriendo en http://localhost:${PORT}`);
   console.log(`Admin demo: usuario ${ADMIN_USER} / contraseña ${ADMIN_PASS}`);
 });

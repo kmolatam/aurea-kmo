@@ -161,7 +161,7 @@
       center(restaurant, width),
       center('AUREA by KMO', width),
       line(width),
-      center('TICKET DE CUENTA', width),
+      center('TICKET OFICIAL', width),
       center(tableName, width),
       center(new Date().toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' }), width),
       line(width)
@@ -173,7 +173,15 @@
       lines.push(itemLine(item, { width, showPrices: true }));
     });
     lines.push(line(width));
-    lines.push(row('TOTAL', money(payload.total || 0), width));
+    lines.push(row('TOTAL CONSUMO', money(payload.total || 0), width));
+    const suggestedTips = Array.isArray(payload.suggestedTips) ? payload.suggestedTips : [];
+    if (suggestedTips.length) {
+      lines.push(line(width));
+      lines.push('Propina sugerida (opcional)');
+      suggestedTips.forEach(tip => {
+        lines.push(row(`${tip.percent || 0}%`, money(tip.amount || 0), width));
+      });
+    }
     if (payload.note) {
       lines.push('');
       lines.push(...wrapText(payload.note, width));

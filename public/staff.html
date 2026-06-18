@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>AUREA Staff</title>
-  <link rel="stylesheet" href="/style.css?v=0.9.17" />
+  <link rel="stylesheet" href="/style.css?v=0.9.18" />
   <script>
     if (!String.prototype.replaceAll) {
       String.prototype.replaceAll = function(search, replacement) {
@@ -188,7 +188,7 @@
         </div>
         <button class="btn ghost small" onclick="closeStaffPaymentModal()">Cerrar</button>
       </div>
-      <p class="muted" style="line-height:1.5; margin-top:0;">El pago quedará pendiente hasta que admin/capitán lo autorice en Corte diario.</p>
+      <p class="muted" style="line-height:1.5; margin-top:0;">El mesero puede registrar el pago y cerrar la mesa sin autorización de admin.</p>
       <div class="grid">
         <label class="col-6">Método de pago
           <select id="staffPaymentMethod">
@@ -214,13 +214,13 @@
       </div>
       <div class="inline-actions end" style="margin-top:16px;">
         <button class="btn ghost" onclick="closeStaffPaymentModal()">Cancelar</button>
-        <button class="btn success" onclick="submitStaffPayment()">Enviar a autorización</button>
+        <button class="btn success" onclick="submitStaffPayment()">Registrar pago</button>
       </div>
     </div>
   </div>
 
 
-  <script src="/aurea-print-bridge.js?v=0.9.17"></script>
-  <script src="/staff.js?v=0.9.17"></script>
+  <script src="/aurea-print-bridge.js?v=0.9.18"></script>
+  <script src="/staff.js?v=0.9.18"></script>
 </body>
 </html>
