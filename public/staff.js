@@ -7,7 +7,7 @@ let currentStaffOrderDraft = [];
 let currentStaffCategoryId = '';
 let currentStaffEditingItemId = '';
 let guidedTourState = null;
-const STAFF_JS_VERSION = '0.9.16-pos-funciones-reales';
+const STAFF_JS_VERSION = '0.9.17-cocina-zonas-fix';
 let notificationsBaselineReady = false;
 const seenAlertIds = new Set();
 const seenOrderIds = new Set();
@@ -233,15 +233,33 @@ function printHtmlDocument(title, bodyHtml, options = {}) {
 function printStaffOrderDataBridge(order) {
   const bridge = window.AureaPrintBridge;
   if (!bridge?.shouldUseBridge?.() || !order) return false;
-  const ticketText = bridge.buildOrderTicketText(order, {
-    restaurantName: staffDb?.restaurant?.name || 'AUREA',
-    ticketWidthMm: ticketWidthMm(),
-    title: `COMANDA #${order.commandNumber || '-'}`,
-    showPrices: false,
-    showTotal: false,
-    footer: 'Ticket de cocina'
+  const stationGroups = new Map();
+  (order.items || []).forEach(item => {
+    const stationId = item.kitchenStation || 'hot';
+    if (!stationGroups.has(stationId)) stationGroups.set(stationId, []);
+    stationGroups.get(stationId).push(item);
   });
-  return bridge.printTextIfBridge(ticketText, printBrandOptions(false));
+  if (!stationGroups.size) return false;
+
+  let delay = 0;
+  let sent = false;
+  for (const [stationId, items] of stationGroups.entries()) {
+    const stationLabel = kitchenStationName(stationId);
+    const ticketText = bridge.buildOrderTicketText(order, {
+      restaurantName: staffDb?.restaurant?.name || 'AUREA',
+      ticketWidthMm: ticketWidthMm(),
+      title: `COMANDA #${order.commandNumber || '-'}`,
+      stationLabel,
+      items,
+      showPrices: false,
+      showTotal: false,
+      footer: 'Ticket de cocina'
+    });
+    setTimeout(() => bridge.printTextIfBridge(ticketText, printBrandOptions(false)), delay);
+    delay += 550;
+    sent = true;
+  }
+  return sent;
 }
 
 function printStaffOrderTicket(orderId) {
@@ -890,6 +908,8 @@ function addStaffDraftItem(itemId) {
     note,
     modifierName,
     modifierGroupName: item.modifierGroupName || 'Opción',
+    kitchenStation: item.kitchenStation || 'hot',
+    kitchenStationLabel: kitchenStationName(item.kitchenStation || 'hot'),
     dinerName,
     dinerBreakdown: dinerName
   });
@@ -1189,7 +1209,7 @@ checkStaffSession();
 
 
 const AUREA_SUPPORT_WHATSAPP = '526601552214';
-const AUREA_RELEASE_VERSION = '0.9.13';
+const AUREA_RELEASE_VERSION = '0.9.17';
 
 function supportWhatsAppUrl(panel) {
   const restaurant = (typeof staffDb !== 'undefined' && staffDb?.restaurant?.name) || (typeof db !== 'undefined' && db?.restaurant?.name) || (typeof kitchenDb !== 'undefined' && kitchenDb?.restaurant?.name) || 'AUREA';

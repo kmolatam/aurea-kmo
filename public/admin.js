@@ -313,9 +313,20 @@ function kitchenStations() {
   ];
 }
 
+function kitchenStationDisplayLabel(station) {
+  if (!station) return 'Barra caliente';
+  if (typeof station === 'string') {
+    const found = kitchenStations().find(item => item.id === station || item.label === station);
+    return found ? (found.label || found.id) : station;
+  }
+  return station.label || station.name || station.id || 'Barra caliente';
+}
+
 function kitchenStationName(value) {
-  const station = kitchenStations().find(item => item.id === (value || 'hot')) || kitchenStations()[0] || { id: 'hot', label: 'Barra caliente', icon: '🔥' };
-  return `${station.icon ? `${station.icon} ` : ''}${station.label || station.id}`;
+  const raw = String(value || 'hot');
+  const station = kitchenStations().find(item => item.id === raw || item.label === raw) || kitchenStations()[0] || { id: 'hot', label: 'Barra caliente', icon: '🔥' };
+  const label = kitchenStationDisplayLabel(station);
+  return `${station.icon ? `${station.icon} ` : ''}${label}`;
 }
 
 function kitchenStationsText() {
@@ -382,7 +393,7 @@ function renderQuickKitchenAreas() {
         </span>
       `).join('')}
     </div>
-    <div class="item-meta" style="margin-top:8px;">Después asigna cada platillo a su área en Menú y cada cocinero aquí mismo.</div>
+    <div class="item-meta" style="margin-top:8px;">Ruta real: producto → área → cocinero/PIN → pantalla o impresora de esa área.</div>
   `;
 }
 
@@ -484,18 +495,34 @@ async function saveQuickKitchenAreas() {
 function renderKitchenStationOptions(selected = '') {
   const stations = kitchenStations();
   const select = document.getElementById('itemKitchenStation');
+  const selectedId = String(selected || '').trim();
   if (select) {
-    select.innerHTML = stations.map(station => `<option value="${escapeHtml(station.id)}">${escapeHtml(station.icon ? `${station.icon} ${station.label}` : station.label)}</option>`).join('\n');
-    select.value = stations.some(station => station.id === selected) ? selected : (stations[0]?.id || 'hot');
+    if (!stations.length) {
+      select.innerHTML = '<option value="hot">Barra caliente</option>';
+      select.value = 'hot';
+    } else {
+      select.innerHTML = stations.map(station => {
+        const label = kitchenStationDisplayLabel(station);
+        return `<option value="${escapeHtml(station.id)}">${escapeHtml(station.icon ? `${station.icon} ${label}` : label)}</option>`;
+      }).join('\n');
+      select.value = stations.some(station => station.id === selectedId) ? selectedId : (stations[0]?.id || 'hot');
+    }
   }
   const staffStations = document.getElementById('staffKitchenStations');
   if (staffStations) {
-    staffStations.innerHTML = stations.map(station => `
-      <label class="check-pill">
-        <input type="checkbox" name="staffKitchenStation" value="${escapeHtml(station.id)}" />
-        <span>${escapeHtml(station.icon ? `${station.icon} ${kitchenStationDisplayLabel(station)}` : kitchenStationDisplayLabel(station))}</span>
-      </label>
-    `).join('\n');
+    if (!stations.length) {
+      staffStations.innerHTML = '<div class="item-meta">Primero agrega áreas de cocina y guárdalas.</div>';
+    } else {
+      staffStations.innerHTML = stations.map(station => {
+        const label = kitchenStationDisplayLabel(station);
+        return `
+          <label class="check-pill">
+            <input type="checkbox" name="staffKitchenStation" value="${escapeHtml(station.id)}" />
+            <span>${escapeHtml(station.icon ? `${station.icon} ${label}` : label)}</span>
+          </label>
+        `;
+      }).join('\n');
+    }
   }
 }
 
@@ -1056,7 +1083,7 @@ async function saveStaffKitchenZones(staffId) {
     .map(id => stations.findIndex(station => station.id === id) + 1)
     .filter(index => index > 0)
     .join(', ');
-  const available = stations.map((station, index) => `${index + 1}) ${station.label}`).join('\n');
+  const available = stations.map((station, index) => `${index + 1}) ${kitchenStationDisplayLabel(station)}`).join('\n');
   const raw = prompt(`Selecciona zonas por numero, separadas por coma. Vacío = ve todas.\n\n${available}`, currentIndexes);
   if (raw === null) return;
   const kitchenStationIds = raw.split(',')
@@ -1282,7 +1309,7 @@ function renderStaff() {
     <div class="item" style="border-color:rgba(201,164,76,.55);">
       <div>
         <div class="item-title">Staff cargado · ${staff.length}</div>
-        <div class="item-meta">Estos son los PIN y áreas que ya están guardados en la base del restaurante.</div>
+        <div class="item-meta">Estos son los PIN y áreas guardadas. Para una impresora por barra: abre Cocina en esa terminal e inicia sesión con el PIN del cocinero asignado a esa área.</div>
       </div>
     </div>
     ${staff.map(member => `

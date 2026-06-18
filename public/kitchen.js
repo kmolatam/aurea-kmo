@@ -484,7 +484,7 @@ checkKitchenSession();
 
 
 const AUREA_SUPPORT_WHATSAPP = '526601552214';
-const AUREA_RELEASE_VERSION = '0.9.13';
+const AUREA_RELEASE_VERSION = '0.9.17';
 
 function supportWhatsAppUrl(panel) {
   const restaurant = (typeof staffDb !== 'undefined' && staffDb?.restaurant?.name) || (typeof db !== 'undefined' && db?.restaurant?.name) || (typeof kitchenDb !== 'undefined' && kitchenDb?.restaurant?.name) || 'AUREA';
@@ -515,7 +515,7 @@ function releaseNotesFor(panel = 'panel') {
   if (panel === 'kitchen') {
     return [
       'Cocina separada por Barra caliente, Barra fría y Bebidas.',
-      'Cada barra ve solo los productos que le corresponden.',
+      'Cada cocinero/PIN puede quedar limitado a una barra y esa terminal imprime solo esa barra.',
       'Impresión web térmica optimizada para 58 mm / Urovo.'
     ];
   }
