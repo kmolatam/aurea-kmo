@@ -4,7 +4,16 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>AUREA Cocina</title>
-  <link rel="stylesheet" href="/style.css?v=0.9.13" />
+  <link rel="stylesheet" href="/style.css?v=0.9.14" />
+  <script>
+    if (!String.prototype.replaceAll) {
+      String.prototype.replaceAll = function(search, replacement) {
+        var target = String(this);
+        if (search instanceof RegExp) return target.replace(search, replacement);
+        return target.split(String(search)).join(String(replacement));
+      };
+    }
+  </script>
 </head>
 <body>
   <div id="toast" class="toast"></div>
@@ -54,7 +63,7 @@
     <section id="kitchenStationGrid" class="grid"></section>
   </main>
 
-  <script src="/aurea-print-bridge.js?v=0.9.13"></script>
-  <script src="/kitchen.js?v=0.9.13"></script>
+  <script src="/aurea-print-bridge.js?v=0.9.14"></script>
+  <script src="/kitchen.js?v=0.9.14"></script>
 </body>
 </html>

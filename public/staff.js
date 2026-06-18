@@ -7,7 +7,7 @@ let currentStaffOrderDraft = [];
 let currentStaffCategoryId = '';
 let currentStaffEditingItemId = '';
 let guidedTourState = null;
-const STAFF_JS_VERSION = '0.9.13-ticket-logo-ux';
+const STAFF_JS_VERSION = '0.9.15-pos-unificado';
 let notificationsBaselineReady = false;
 const seenAlertIds = new Set();
 const seenOrderIds = new Set();
@@ -841,6 +841,41 @@ function removeStaffDraftItem(localId) {
   renderStaffOrderItems();
 }
 
+function staffItemEditorHtml(editingItem) {
+  if (!editingItem) return '';
+  return `
+    <div class="quick-item-editor menu-editor-inline">
+      <div>
+        <h3>${escapeHtml(editingItem.name)}</h3>
+        <p class="muted">${money(editingItem.price)}${editingItem.description ? ` · ${escapeHtml(editingItem.description)}` : ''}</p>
+      </div>
+      ${Array.isArray(editingItem.modifiers) && editingItem.modifiers.length ? `
+        <div class="modifier-picker">
+          <div class="form-label">${escapeHtml(editingItem.modifierGroupName || 'Opción')}</div>
+          <div class="choice-grid modifier-choice-grid">
+            ${editingItem.modifiers.map((option, index) => `<label class="choice-check ${index === 0 ? 'active' : ''}"><input type="radio" name="staffQuickModifier" value="${escapeHtml(option)}" ${index === 0 ? 'checked' : ''} onchange="setChoiceActive(this)" /> <span>${escapeHtml(option)}</span></label>`).join('')}
+          </div>
+        </div>
+      ` : ''}
+      <div class="quick-qty-row">
+        <label>Cantidad
+          <input id="staffQuickQty" class="input" type="number" min="1" max="20" value="1" />
+        </label>
+        <label>Cuenta / persona
+          <input id="staffQuickDiner" class="input" placeholder="Ej. Mesa, Eduardo..." />
+        </label>
+      </div>
+      <label>Nota rápida
+        <input id="staffQuickNote" class="input" placeholder="Sin cebolla, extra salsa..." />
+      </label>
+      <div class="inline-actions end compact-order-actions">
+        <button type="button" class="btn ghost small" onclick="closeStaffItemEditor()">Cancelar</button>
+        <button type="button" class="btn success small" onclick="addStaffDraftItem('${escapeHtml(editingItem.id)}')">Agregar</button>
+      </div>
+    </div>
+  `;
+}
+
 async function renderStaffOrderItems() {
   const el = document.getElementById('staffOrderItems');
   let items = getStaffMenuItems();
@@ -881,51 +916,16 @@ async function renderStaffOrderItems() {
       </div>
       <div class="menu-pick-grid">
         ${shownItems.map(item => `
-          <button type="button" class="menu-pick-card ${draftQtyFor(item.id) ? 'selected' : ''}" onclick="openStaffItemEditor('${escapeHtml(item.id)}')">
+          <button type="button" class="menu-pick-card ${draftQtyFor(item.id) ? 'selected' : ''} ${editingItem?.id === item.id ? 'editing' : ''}" onclick="openStaffItemEditor('${escapeHtml(item.id)}')">
             <strong>${escapeHtml(item.name)}</strong>
             <span>${money(item.price)}</span>
             <small>${escapeHtml(kitchenStationName(item.kitchenStation))}</small>
             ${item.description ? `<small>${escapeHtml(item.description)}</small>` : ''}
             ${draftQtyFor(item.id) ? `<em>${draftQtyFor(item.id)} agregado(s)</em>` : ''}
           </button>
+          ${editingItem?.id === item.id ? staffItemEditorHtml(editingItem) : ''}
         `).join('')}
       </div>
-
-      ${editingItem ? `
-        <div class="quick-item-editor">
-          <div>
-            <h3>${escapeHtml(editingItem.name)}</h3>
-            <p class="muted">${money(editingItem.price)}${editingItem.description ? ` · ${escapeHtml(editingItem.description)}` : ''}</p>
-          </div>
-          ${Array.isArray(editingItem.modifiers) && editingItem.modifiers.length ? `
-            <div class="modifier-picker">
-              <div class="form-label">${escapeHtml(editingItem.modifierGroupName || 'Opción')}</div>
-              <div class="choice-grid modifier-choice-grid">
-                ${editingItem.modifiers.map((option, index) => `<label class="choice-check ${index === 0 ? 'active' : ''}"><input type="radio" name="staffQuickModifier" value="${escapeHtml(option)}" ${index === 0 ? 'checked' : ''} onchange="setChoiceActive(this)" /> <span>${escapeHtml(option)}</span></label>`).join('')}
-              </div>
-            </div>
-          ` : ''}
-          <div class="grid">
-            <label class="col-4">Cantidad
-              <div class="qty-stepper">
-                <button type="button" class="btn secondary small" onclick="adjustStaffQuickQty(-1)">−</button>
-                <input id="staffQuickQty" class="input qty-display" type="text" inputmode="none" readonly value="1" aria-label="Cantidad" />
-                <button type="button" class="btn secondary small" onclick="adjustStaffQuickQty(1)">+</button>
-              </div>
-            </label>
-            <label class="col-4">Cuenta / persona
-              <input id="staffQuickDiner" class="input" placeholder="Ej. Mesa, Eduardo, Joel..." />
-            </label>
-            <label class="col-4">Nota
-              <input id="staffQuickNote" class="input" placeholder="Sin cebolla, extra salsa..." />
-            </label>
-          </div>
-          <div class="inline-actions end">
-            <button type="button" class="btn ghost small" onclick="closeStaffItemEditor()">Cancelar</button>
-            <button type="button" class="btn success small" onclick="addStaffDraftItem('${escapeHtml(editingItem.id)}')">Agregar</button>
-          </div>
-        </div>
-      ` : ''}
 
       <div class="wizard-step">
         <span class="wizard-dot">3</span>
@@ -982,11 +982,15 @@ async function submitStaffOrder() {
       method: 'POST',
       body: JSON.stringify(payload)
     });
+    if (data.order && window.AureaPrintBridge?.shouldUseBridge?.()) {
+      setTimeout(() => {
+        try { printStaffOrderDataBridge(data.order); } catch (error) { console.warn('No se pudo autoimprimir comanda', error); }
+      }, 140);
+    }
     resetStaffOrderDraft();
     closeStaffOrderModal();
     toast(`Pedido #${data.order.commandNumber} enviado a cocina`);
     await loadStaffData();
-    setTimeout(() => printStaffOrderDataBridge(data.order), 250);
   } catch (error) {
     toast(error.message);
   }

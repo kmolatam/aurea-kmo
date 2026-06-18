@@ -4,7 +4,16 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>AUREA Staff</title>
-  <link rel="stylesheet" href="/style.css?v=0.9.13" />
+  <link rel="stylesheet" href="/style.css?v=0.9.154" />
+  <script>
+    if (!String.prototype.replaceAll) {
+      String.prototype.replaceAll = function(search, replacement) {
+        var target = String(this);
+        if (search instanceof RegExp) return target.replace(search, replacement);
+        return target.split(String(search)).join(String(replacement));
+      };
+    }
+  </script>
 </head>
 <body>
   <div id="toast" class="toast"></div>
@@ -190,7 +199,7 @@
   </div>
 
 
-  <script src="/aurea-print-bridge.js?v=0.9.13"></script>
-  <script src="/staff.js?v=0.9.13"></script>
+  <script src="/aurea-print-bridge.js?v=0.9.15"></script>
+  <script src="/staff.js?v=0.9.15"></script>
 </body>
 </html>

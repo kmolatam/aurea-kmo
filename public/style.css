@@ -1352,7 +1352,7 @@ select option { color: #111; }
   }
 }
 
-/* AUREA v0.9.0 · barras, modificadores e impresión */
+/* AUREA v0.9.15 · POS unificado, pantalla compacta e impresión */
 .form-label {
   color: var(--muted);
   font-size: 13px;
@@ -1520,3 +1520,83 @@ select option { color: #111; }
 .quick-item-editor{scroll-margin-top:14px;position:relative}
 .menu-pick-grid{scroll-margin-bottom:120px}
 .modal .inline-actions[style*="sticky"]{position:sticky;bottom:0;z-index:6;border-top:1px solid var(--line);box-shadow:0 -8px 24px rgba(0,0,0,.18)}
+
+
+/* AUREA v0.9.15 · POS compacto/unificado */
+.menu-editor-inline {
+  grid-column: 1 / -1;
+  margin: -2px 0 6px;
+}
+.menu-pick-card.editing {
+  border-color: var(--detail);
+  box-shadow: inset 0 0 0 1px var(--detail), 0 0 0 3px color-mix(in srgb, var(--detail) 14%, transparent);
+}
+.quick-qty-row {
+  display: grid;
+  grid-template-columns: .7fr 1.3fr;
+  gap: 8px;
+  margin: 10px 0;
+}
+.compact-order-actions {
+  margin-top: 10px;
+}
+#staffOrderModal .modal {
+  padding-bottom: 86px;
+}
+#staffOrderModal > .modal .inline-actions.end:last-child {
+  position: sticky;
+  bottom: -18px;
+  margin: 12px -18px -18px;
+  padding: 10px 14px;
+  background: rgba(21,21,25,.98);
+  border-top: 1px solid var(--line);
+  display: grid;
+  grid-template-columns: 1fr 1.35fr;
+  gap: 8px;
+  z-index: 5;
+}
+#staffOrderModal > .modal .inline-actions.end:last-child .btn {
+  width: 100%;
+  min-height: 44px;
+}
+@media (max-width: 720px) {
+  .client-page {
+    padding: 10px 10px 84px;
+  }
+  .client-hero {
+    padding: 15px;
+    border-radius: 22px;
+  }
+  .client-hero .inline-actions .btn {
+    flex: 1 1 30%;
+    padding: 10px 9px;
+  }
+  .modal {
+    max-height: 94vh;
+    border-radius: 20px 20px 0 0;
+    padding: 14px;
+  }
+  #staffOrderModal .modal {
+    padding-bottom: 84px;
+  }
+  #staffOrderModal > .modal .inline-actions.end:last-child {
+    bottom: -14px;
+    margin: 10px -14px -14px;
+    padding: 9px 12px;
+  }
+  .menu-pick-grid {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+  .menu-pick-card {
+    min-height: 76px;
+    padding: 11px;
+  }
+  .quick-item-editor {
+    padding: 12px;
+    border-radius: 18px;
+  }
+  .quick-qty-row {
+    grid-template-columns: 1fr;
+  }
+}
