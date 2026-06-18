@@ -107,8 +107,7 @@
     }
     if (item?.modifierName) lines.push(...wrapText(`${item.modifierGroupName || 'Opcion'}: ${item.modifierName}`, width, '  '));
     if (item?.note) lines.push(...wrapText(`Nota: ${item.note}`, width, '  '));
-    if (item?.dinerName) lines.push(...wrapText(`Cuenta: ${item.dinerName}`, width, '  '));
-    return lines.join('\n');
+        return lines.join('\n');
   }
 
   function buildOrderTicketText(order, options = {}) {

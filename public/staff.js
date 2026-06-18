@@ -7,7 +7,7 @@ let currentStaffOrderDraft = [];
 let currentStaffCategoryId = '';
 let currentStaffEditingItemId = '';
 let guidedTourState = null;
-const STAFF_JS_VERSION = '0.9.18-entrega-rapida';
+const STAFF_JS_VERSION = '0.9.19-ticket-unificado-emergencia';
 let notificationsBaselineReady = false;
 const seenAlertIds = new Set();
 const seenOrderIds = new Set();
@@ -266,7 +266,7 @@ function printStaffOrderTicket(orderId) {
   const order = (staffDb.orders || []).find(item => item.id === orderId);
   if (!order) return toast('Comanda no encontrada');
   const items = (order.items || []).map(item => `
-    <div class="item"><div class="row"><strong>${escapeHtml(item.qty)}× ${escapeHtml(item.name)}</strong><span>${money(item.subtotal)}</span></div>${item.modifierName ? `<small>${escapeHtml(item.modifierGroupName || 'Opción')}: ${escapeHtml(item.modifierName)}</small>` : ''}${item.note ? `<small>Nota: ${escapeHtml(item.note)}</small>` : ''}${item.dinerName ? `<small>Cuenta: ${escapeHtml(item.dinerName)}</small>` : ''}</div>
+    <div class="item"><div class="row"><strong>${escapeHtml(item.qty)}× ${escapeHtml(item.name)}</strong><span>${money(item.subtotal)}</span></div>${item.modifierName ? `<small>${escapeHtml(item.modifierGroupName || 'Opción')}: ${escapeHtml(item.modifierName)}</small>` : ''}${item.note ? `<small>Nota: ${escapeHtml(item.note)}</small>` : ''}</div>
   `).join('');
   const bodyHtml = `
     <div class="center"><strong>COMANDA #${escapeHtml(order.commandNumber || '-')}</strong><br><span>${escapeHtml(order.tableName || 'Mesa')}</span><br><span class="muted">${dateTime(order.createdAt)}</span></div>
@@ -310,7 +310,7 @@ function printStaffBillTicket() {
   const suggestedTips = [10, 15, 20].map(percent => ({ percent, amount: suggestedTipAmount(total, percent), total: total + suggestedTipAmount(total, percent) }));
   const note = 'Propina sugerida opcional. El total de consumo no incluye propina.';
   const items = lines.map(line => `
-    <div class="item"><div class="row"><span>${escapeHtml(line.qty)}× ${escapeHtml(line.name)}</span><strong>${money(line.subtotal)}</strong></div>${line.modifierName ? `<small>${escapeHtml(line.modifierGroupName || 'Opción')}: ${escapeHtml(line.modifierName)}</small>` : ''}${line.note ? `<small>Nota: ${escapeHtml(line.note)}</small>` : ''}${line.dinerName ? `<small>Cuenta: ${escapeHtml(line.dinerName)}</small>` : ''}</div>
+    <div class="item"><div class="row"><span>${escapeHtml(line.qty)}× ${escapeHtml(line.name)}</span><strong>${money(line.subtotal)}</strong></div>${line.modifierName ? `<small>${escapeHtml(line.modifierGroupName || 'Opción')}: ${escapeHtml(line.modifierName)}</small>` : ''}${line.note ? `<small>Nota: ${escapeHtml(line.note)}</small>` : ''}</div>
   `).join('');
   const tipRows = suggestedTips.map(tip => `<div class="row"><span>Propina sugerida ${tip.percent}%</span><span>${money(tip.amount)}</span></div>`).join('');
   const bodyHtml = `
@@ -570,7 +570,7 @@ function billLinesForTable(tableId) {
         note: item.note || '',
         modifierName: item.modifierName || '',
         modifierGroupName: item.modifierGroupName || 'Opción',
-        dinerName: item.dinerName || item.personName || ''
+        dinerName: ''
       });
     });
   }
@@ -578,18 +578,12 @@ function billLinesForTable(tableId) {
 }
 
 function groupedBillForTable(tableId) {
-  const lines = billLinesForTable(tableId);
-  const groups = new Map();
-  for (const line of lines) {
-    const key = (line.dinerName || 'Mesa completa').trim() || 'Mesa completa';
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(line);
-  }
-  return Array.from(groups.entries()).map(([name, groupLines]) => ({
-    name,
-    lines: groupLines,
-    total: groupLines.reduce((sum, line) => sum + Number(line.subtotal || 0), 0)
-  }));
+  const lines = billLinesForTable(tableId).map(line => ({ ...line, dinerName: '' }));
+  return [{
+    name: 'Mesa completa',
+    lines,
+    total: lines.reduce((sum, line) => sum + Number(line.subtotal || 0), 0)
+  }];
 }
 
 function openStaffBillModal(tableId) {
@@ -606,22 +600,13 @@ function openStaffBillModal(tableId) {
     <div class="bill-lines">
       ${lines.map(line => `
         <div class="bill-line">
-          <span>${escapeHtml(line.qty)} × ${escapeHtml(line.name)}${line.modifierName ? ` · ${escapeHtml(line.modifierName)}` : ''}${line.dinerName ? ` · ${escapeHtml(line.dinerName)}` : ''}</span>
+          <span>${escapeHtml(line.qty)} × ${escapeHtml(line.name)}${line.modifierName ? ` · ${escapeHtml(line.modifierName)}` : ''}</span>
           <strong>${money(line.subtotal)}</strong>
           <button class="btn danger small" type="button" onclick="cancelStaffBillItem('${line.orderId}', ${Number(line.itemIndex || 0)})">Cancelar</button>
         </div>
       `).join('')}
     </div>
-    <h3 style="margin:16px 0 8px;">Cuentas separadas</h3>
-    <div class="split-account-list">
-      ${groups.map(group => `
-        <div class="split-account-card">
-          <strong>${escapeHtml(group.name)}</strong>
-          <span>${money(group.total)}</span>
-          <small>${group.lines.map(line => `${line.qty}× ${line.name}`).join(', ')}</small>
-        </div>
-      `).join('')}
-    </div>
+    <div class="item-meta" style="margin-top:12px;">Ticket unificado por mesa completa.</div>
   ` : '<div class="item"><div>Esta mesa todavía no tiene productos registrados.</div></div>';
 
   document.getElementById('staffBillModal').classList.add('active');
@@ -912,7 +897,7 @@ function addStaffDraftItem(itemId) {
   if (!item) return toast('Producto no encontrado');
   const qty = Math.max(1, Math.min(20, Number(document.getElementById('staffQuickQty')?.value || 1)));
   const note = document.getElementById('staffQuickNote')?.value || '';
-  const dinerName = document.getElementById('staffQuickDiner')?.value || '';
+  const dinerName = ''; // v0.9.19: cuenta unificada por mesa; no separar por persona
   const modifierName = document.querySelector('input[name="staffQuickModifier"]:checked')?.value || '';
   currentStaffOrderDraft.push({
     localId: `${itemId}-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
@@ -962,9 +947,7 @@ function staffItemEditorHtml(editingItem) {
             <button type="button" class="btn ghost small" onclick="adjustStaffQuickQty(1)">+</button>
           </div>
         </label>
-        <label>Cuenta / persona
-          <input id="staffQuickDiner" class="input" placeholder="Ej. Mesa, Eduardo..." />
-        </label>
+        <input id="staffQuickDiner" type="hidden" value="" />
       </div>
       <label>Nota rápida
         <input id="staffQuickNote" class="input" placeholder="Sin cebolla, extra salsa..." />
@@ -1040,7 +1023,7 @@ async function renderStaffOrderItems() {
           <div class="draft-row">
             <div>
               <strong>${escapeHtml(item.qty)} × ${escapeHtml(item.name)}</strong>
-              <small>${money(Number(item.price || 0) * Number(item.qty || 0))}${item.modifierName ? ` · ${escapeHtml(item.modifierGroupName || 'Opción')}: ${escapeHtml(item.modifierName)}` : ''}${item.dinerName ? ` · Cuenta: ${escapeHtml(item.dinerName)}` : ''}${item.note ? ` · ${escapeHtml(item.note)}` : ''}</small>
+              <small>${money(Number(item.price || 0) * Number(item.qty || 0))}${item.modifierName ? ` · ${escapeHtml(item.modifierGroupName || 'Opción')}: ${escapeHtml(item.modifierName)}` : ''}${item.note ? ` · ${escapeHtml(item.note)}` : ''}</small>
             </div>
             <button type="button" class="btn danger tiny" onclick="removeStaffDraftItem('${escapeHtml(item.localId)}')">Quitar</button>
           </div>
@@ -1060,8 +1043,8 @@ async function submitStaffOrder() {
     qty: Number(item.qty || 0),
     note: item.note || '',
     modifierName: item.modifierName || '',
-    dinerName: item.dinerName || '',
-    dinerBreakdown: item.dinerBreakdown || item.dinerName || ''
+    dinerName: '',
+    dinerBreakdown: ''
   })).filter(item => item.qty > 0);
 
   if (!items.length) {
@@ -1157,7 +1140,7 @@ function renderOrders() {
         <div class="item-title">#${escapeHtml(order.commandNumber || '-')} · ${escapeHtml(order.tableName)} · ${money(order.total)}</div>
         <div class="item-meta">${dateTime(order.createdAt)} · ${escapeHtml(statusLabel(order.status))}${order.estimatedTime ? ` · Estimado: ${escapeHtml(order.estimatedTime)}` : ''}</div>
         <div style="margin-top:10px; display:grid; gap:4px;">
-          ${order.items.map(item => `<div>${item.qty} × ${escapeHtml(item.name)}${item.modifierName ? ` · <strong>${escapeHtml(item.modifierName)}</strong>` : ''}${item.dinerName ? ` · ${escapeHtml(item.dinerName)}` : ''} <span class="item-meta">${money(item.subtotal)}</span></div>`).join('')}
+          ${order.items.map(item => `<div>${item.qty} × ${escapeHtml(item.name)}${item.modifierName ? ` · <strong>${escapeHtml(item.modifierName)}</strong>` : ''} <span class="item-meta">${money(item.subtotal)}</span></div>`).join('')}
         </div>
         ${order.note ? `<div class="item-meta" style="margin-top:8px;">Nota: ${escapeHtml(order.note)}</div>` : ''}
         <div class="item-meta" style="margin-top:8px;">Mesero: ${escapeHtml(order.assignedStaffName || 'sin asignar')}</div>

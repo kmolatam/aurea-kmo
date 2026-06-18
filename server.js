@@ -592,7 +592,7 @@ function buildBillSummary(db, tableId) {
         modifierGroupName: cleanString(item.modifierGroupName || 'Opción', 60) || 'Opción',
         kitchenStation: normalizeKitchenStation(item.kitchenStation || 'hot'),
         kitchenStationLabel: kitchenStationLabel(item.kitchenStation || 'hot', db.restaurant.kitchenStations),
-        dinerName: cleanDinerName(item.dinerName || item.personName || ''),
+        dinerName: '',
         subtotal: roundMoney(item.subtotal !== undefined ? item.subtotal : Number(item.price || 0) * Number(item.qty || 0))
       });
     }
@@ -605,7 +605,7 @@ function buildBillSummary(db, tableId) {
     orders: orders.map(publicOrder),
     lines,
     subtotal,
-    splitAccounts: splitAccountsFromLines(lines),
+    splitAccounts: [{ name: 'Mesa completa', lines, subtotal }],
     diners: session?.diners || [],
     source: 'aurea_official',
     disclaimer: 'Ticket oficial generado con base en pedidos registrados en AUREA.'
@@ -876,7 +876,7 @@ function normalizeOrderLines(db, rawItems) {
       kitchenStation: normalizeKitchenStation(item.kitchenStation || 'hot'),
       kitchenStationLabel: kitchenStationLabel(item.kitchenStation || 'hot', db.restaurant.kitchenStations)
     };
-    const allocations = parseDinerBreakdown(line.splitAssignments || line.dinerBreakdown || line.allocations || []);
+    const allocations = []; // v0.9.19 emergencia: no dividir cuentas por persona
 
     let remaining = qty;
     for (const alloc of allocations) {
@@ -897,7 +897,7 @@ function normalizeOrderLines(db, rawItems) {
       cleanItems.push({
         ...common,
         qty: remaining,
-        dinerName: cleanDinerName(line.dinerName || line.personName || ''),
+        dinerName: '',
         subtotal: roundMoney(price * remaining)
       });
     }
