@@ -1,136 +1,48 @@
-# AUREA by KMO - MVP v0.8.1
+# Áurea POS Urovo v0.6 - sistema completo + impresión automática
 
-Sistema QR para restaurantes: menú, pedidos, comandas, Staff Intelligence, CRM WhatsApp, cuenta inteligente, cuentas separadas, experiencia premium, cierre operativo de mesa y base para **WhatsApp Pedidos**.
+Esta APK abre el sistema web completo dentro de WebView:
 
-## Correr
+- Admin
+- Meseros
+- Cocina
+- Tickets / cuenta
+- Comandas por área
 
-```bash
-npm install
-npm start
-```
+Y además inyecta un puente nativo para que al tocar **Imprimir** en Áurea se mande directo a la impresora interna del Urovo, sin Chrome, sin popup y sin selector de impresora.
 
-## URLs
+## Cambios v0.6
 
-- Landing: http://localhost:3000
-- Admin: http://localhost:3000/admin.html
-- Mesa demo: http://localhost:3000/t/mesa-1
-- Staff: http://localhost:3000/staff.html
-- Cocina: http://localhost:3000/kitchen.html
+- Default URL: `https://aurea.kmo.lat/admin.html?pos=1&print=bridge`
+- Botones rápidos: Admin, Meseros, Cocina, Recargar.
+- Fuerza `aurea-print-mode-v1 = bridge` dentro del WebView.
+- Sobrescribe `window.open()` y `window.print()` para convertir tickets web a impresión nativa.
+- Feed inferior aumentado a 300 dots, aproximado 3 cm.
+- Mantiene package `com.aurea.print` para reemplazar la app anterior.
 
-## Accesos demo
+## Compilar
 
-Admin:
-- Usuario: `admin`
-- Contraseña: `aurea123`
+1. Sube este proyecto a GitHub.
+2. Entra a Actions.
+3. Ejecuta build.
+4. Descarga el artifact `app-debug.apk`.
+5. Instálalo en Urovo.
 
-Staff/Cocina:
-- PIN: `1234`
+Si Android dice **App no instalada**, desinstala primero la app anterior `Áurea Print / Áurea POS` y vuelve a instalar.
 
-## Nuevo en v0.8.1
+## Uso recomendado
 
-- Se mantiene el **look visual de v0.8**.
-- Nuevo módulo **WhatsApp Pedidos** en Admin.
-- Registro manual/API-ready de pedidos que llegan por WhatsApp.
-- Bandeja para:
-  - crear pedido WhatsApp,
-  - confirmar,
-  - marcar en preparación,
-  - marcar listo,
-  - cerrar,
-  - cancelar,
-  - responder por WhatsApp.
-- Botón **Mandar a cocina** para convertir un pedido WhatsApp en comanda interna de AUREA.
-- QR estable para que clientes abran WhatsApp con mensaje prellenado.
-- Campos de preparación para WhatsApp Business Cloud API oficial:
-  - Business Portfolio ID,
-  - WABA ID,
-  - Phone Number ID,
-  - Webhook URL,
-  - Display name.
-- Identificador interno de restaurante (`instanceSlug`) para preparar multi-restaurante.
+- En Urovo/caja: abre Admin o Meseros dentro de la app y usa botones de imprimir.
+- En Urovo/cocina: abre Cocina dentro de la app y activa auto impresión.
+- En tablets normales de meseros: pueden seguir usando navegador normal sin imprimir.
 
-## Nota importante
+## v0.9.6 Comandas seguras
 
-Esta versión NO usa automatización no oficial de WhatsApp Web. El módulo es manual/API-ready y prepara el camino para Cloud API oficial.
+Esta versión agrega alerta grande de **ERROR DE IMPRESIÓN** en el puente cuando una comanda no sale, y documentación backend para rondas por mesa:
 
-## Roadmap siguiente
+- Cada confirmación de pedido crea una ronda/order_batch nueva.
+- La ronda se divide por `printer_area` para imprimir comandas.
+- La cuenta se junta por `table_session_id` o mesa abierta.
+- `idempotency_key` evita comandas duplicadas.
+- `/api/print-jobs/claim` atómico permite varios mini-puentes sin duplicar.
 
-- v0.8.2 / v1.0: multi-restaurante real con login por restaurante y aislamiento total de datos.
-- v1.1: WhatsApp Cloud API oficial con webhooks.
-- v1.2: plantillas aprobadas, opt-in/opt-out y automatizaciones controladas.
-
-
-## Seguridad multi-restaurante
-
-AUREA en esta versión funciona como **single-tenant** por instancia: un restaurante por despliegue.
-
-### Recomendación para venderlo a otros clientes
-- Crea **una instancia / app separada por restaurante** en Coolify.
-- Asigna **un subdominio distinto** a cada cliente (ej. `lomita.tudominio.com`, `otrocliente.tudominio.com`).
-- Cambia en cada instancia las variables: `AUREA_USER`, `AUREA_PASS`, `AUREA_SUPER_USER`, `AUREA_SUPER_PASS`, `SESSION_SECRET`.
-- Si quieres persistencia aislada, puedes definir `AUREA_DB_PATH` a una ruta distinta por cliente o montar un volumen separado.
-
-Así evitas que personal de un restaurante entre al panel de otro.
-
-
-## Web Print Urovo v0.9.1
-
-Agrega:
-- Ticket web optimizado para 58 mm y 80 mm.
-- Perfil recomendado para Urovo i9100 / Smart POS con impresora interna de 58 mm.
-- Botón “Probar ticket web” en Configuración del admin.
-- Botón “Probar ticket” en pantalla de cocina.
-- Admin, staff y cocina respetan el ancho configurado en AUREA.
-
-Uso recomendado para Urovo i9100:
-1. Entrar a Admin → Configuración.
-2. Seleccionar ancho de ticket: 58 mm.
-3. Guardar.
-4. Abrir AUREA desde Chrome en el Urovo.
-5. Presionar “Probar ticket web”.
-6. Si Android muestra la impresora interna / servicio de impresión y sale el ticket completo, usar impresión web directa.
-
-Nota técnica:
-La impresión sigue usando `window.print()` desde navegador. Si el Urovo no expone su térmica interna al navegador/servicio de impresión, se requerirá app puente o SDK del fabricante.
-
-
-## Urovo Bridge / Áurea Print v0.9.2
-
-Esta versión agrega impresión por app puente **Áurea Print** para Urovo i9100 cuando Chrome no expone la impresora interna al `window.print()`.
-
-Flujo real:
-- Mesero crea comanda desde `/staff.html`.
-- AUREA envía el ticket al esquema `aureaprint://` usando Android Intent.
-- La app instalada **Áurea Print** recibe el texto e imprime en la térmica interna del Urovo.
-- Cocina y Admin conservan impresión web como respaldo en equipos que no sean Android.
-
-Uso recomendado:
-1. Instalar la APK **Áurea Print** en el Urovo.
-2. Abrir AUREA desde Chrome en el Urovo.
-3. Entrar a `/staff.html` o `/kitchen.html`.
-4. Crear una comanda o pulsar “Probar ticket”.
-5. En Android, AUREA usará el puente automáticamente; en PC seguirá usando impresión web.
-
-Modo manual opcional en consola del navegador:
-- Forzar puente: `AureaPrintBridge.setMode('bridge')`
-- Forzar web print: `AureaPrintBridge.setMode('web')`
-- Automático: `AureaPrintBridge.setMode('auto')`
-
-
-## Urovo Bridge v0.9.3 · regreso automático
-
-- El puente web ahora manda `returnUrl` a la app `Áurea Print`.
-- Después de imprimir, la app actualizada puede regresar automáticamente a la página de AUREA donde estaba el usuario.
-- Requiere instalar `Áurea Print v0.2` o superior en el Urovo.
-
-
-## AUREA v0.9.4 · Operación restaurante
-
-Agrega ajustes operativos para campo:
-- Tickets de cuenta del mesero con impresión semi automática al generar cuenta.
-- Comandas de staff y cocina usando puente Áurea Print en Urovo cuando esté disponible.
-- Botones de cantidad con +/- para evitar que el teclado tape el flujo de pedido.
-- Tour y Ayuda se ocultan en pantallas pequeñas para no estorbar en teléfonos.
-- Más margen inferior en pantallas y modales para que el último pedido no quede pegado abajo.
-- Selector de tipo de trabajador: Mesero, Cocina o Capitán.
-- Mantiene áreas de cocina configurables desde Admin → Configuración y subdivisiones de platillo desde Admin → Menú.
+Mientras el backend no tenga `/claim`, usa una sola iMin/tablet fija con Puente BT activo.
