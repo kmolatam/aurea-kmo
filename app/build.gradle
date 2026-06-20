@@ -1,19 +1,19 @@
 plugins { id 'com.android.application' }
 
 android {
-    namespace 'com.aurea.print'
+    namespace 'com.kmo.aureamesero'
     compileSdk 35
 
     defaultConfig {
-        applicationId 'com.aurea.print'
+        applicationId 'com.kmo.aureamesero'
         minSdk 23
         targetSdk 35
-        versionCode 19
-        versionName '0.9.6.2-silent-bridge-no-urovo'
+        versionCode 1
+        versionName '0.1.0'
     }
-}
 
-
-dependencies {
-    // v0.9.6.2: POS WebView + Bridge Bluetooth persistente silencioso, no fuerza Urovo, comandas seguras.
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
 }

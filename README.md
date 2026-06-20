@@ -1,48 +1,41 @@
-# Áurea POS Urovo v0.6 - sistema completo + impresión automática
+# Áurea Mesero Pedidos v0.1.0
 
-Esta APK abre el sistema web completo dentro de WebView:
+APK ligera para tablets de meseros. No imprime. Solo manda pedidos al backend `print.kmo.lat` usando el contrato correcto de Áurea Print Jobs.
 
-- Admin
-- Meseros
-- Cocina
-- Tickets / cuenta
-- Comandas por área
+## Uso en instalación
 
-Y además inyecta un puente nativo para que al tocar **Imprimir** en Áurea se mande directo a la impresora interna del Urovo, sin Chrome, sin popup y sin selector de impresora.
+- Instalar esta APK en tablets de meseros.
+- Instalar `Áurea Print Bridge` solo en la iMin/tablet fija que imprime por Bluetooth.
+- API base recomendada: `http://print.kmo.lat`
+- Token: `kmo_aurea_2026`
+- Sucursal: `1`
 
-## Cambios v0.6
+## Qué hace
 
-- Default URL: `https://aurea.kmo.lat/admin.html?pos=1&print=bridge`
-- Botones rápidos: Admin, Meseros, Cocina, Recargar.
-- Fuerza `aurea-print-mode-v1 = bridge` dentro del WebView.
-- Sobrescribe `window.open()` y `window.print()` para convertir tickets web a impresión nativa.
-- Feed inferior aumentado a 300 dots, aproximado 3 cm.
-- Mantiene package `com.aurea.print` para reemplazar la app anterior.
+POST a:
 
-## Compilar
+`/api/orders/confirm?token=TOKEN`
 
-1. Sube este proyecto a GitHub.
-2. Entra a Actions.
-3. Ejecuta build.
-4. Descarga el artifact `app-debug.apk`.
-5. Instálalo en Urovo.
+con payload:
 
-Si Android dice **App no instalada**, desinstala primero la app anterior `Áurea Print / Áurea POS` y vuelve a instalar.
+```json
+{
+  "branch_id": "1",
+  "table_id": "4",
+  "table_name": "Mesa 4",
+  "waiter_name": "Luis",
+  "idempotency_key": "app-...",
+  "items": [
+    {"name":"Tacos de arrachera","qty":2,"price":95,"printer_area":"barra_caliente"},
+    {"name":"Limonada mineral","qty":3,"price":35,"printer_area":"bebidas"}
+  ]
+}
+```
 
-## Uso recomendado
+El backend crea los `print_jobs`; el puente los imprime.
 
-- En Urovo/caja: abre Admin o Meseros dentro de la app y usa botones de imprimir.
-- En Urovo/cocina: abre Cocina dentro de la app y activa auto impresión.
-- En tablets normales de meseros: pueden seguir usando navegador normal sin imprimir.
+## Compilar en GitHub
 
-## v0.9.6 Comandas seguras
+Sube el contenido a un repo y ejecuta Actions. Si `.github` no sube, crea manualmente:
 
-Esta versión agrega alerta grande de **ERROR DE IMPRESIÓN** en el puente cuando una comanda no sale, y documentación backend para rondas por mesa:
-
-- Cada confirmación de pedido crea una ronda/order_batch nueva.
-- La ronda se divide por `printer_area` para imprimir comandas.
-- La cuenta se junta por `table_session_id` o mesa abierta.
-- `idempotency_key` evita comandas duplicadas.
-- `/api/print-jobs/claim` atómico permite varios mini-puentes sin duplicar.
-
-Mientras el backend no tenga `/claim`, usa una sola iMin/tablet fija con Puente BT activo.
+`.github/workflows/build-apk.yml`
