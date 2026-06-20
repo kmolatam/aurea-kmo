@@ -143,9 +143,13 @@ const ADMIN_PASS = process.env.AUREA_PASS || '1564';
 const SUPER_ADMIN_USER = process.env.AUREA_SUPER_USER || 'superadmin';
 const SUPER_ADMIN_PASS = process.env.AUREA_SUPER_PASS || 'aurea-super-1564';
 const PRINT_BRANCH_ID = String(process.env.AUREA_BRANCH_ID || process.env.BRANCH_ID || '1');
-const PRINT_JOB_TOKEN = String(process.env.AUREA_PRINT_TOKEN || process.env.AUREA_BRANCH_TOKEN || 'kmo_aurea_2026');
+const PRINT_JOB_TOKEN = String(process.env.AUREA_PRINT_TOKEN || '').trim();
 const PRINT_JOB_LEASE_MS = Math.max(30000, Number(process.env.AUREA_PRINT_JOB_LEASE_MS || 120000));
 const ORDER_DUPLICATE_WINDOW_MS = Math.max(3000, Number(process.env.AUREA_ORDER_DUPLICATE_WINDOW_MS || 8000));
+
+if (!PRINT_JOB_TOKEN) {
+  console.warn('AUREA_PRINT_TOKEN no configurado. Endpoints de print_jobs bloqueados hasta configurar token real.');
+}
 
 app.use(express.json({ limit: '8mb' }));
 app.use(express.urlencoded({ extended: true, limit: '8mb' }));
@@ -940,6 +944,7 @@ function printTokenFromRequest(req) {
 }
 
 function requirePrintToken(req, res, next) {
+  if (!PRINT_JOB_TOKEN) return res.status(503).json({ ok: false, message: 'AUREA_PRINT_TOKEN no configurado' });
   if (printTokenFromRequest(req) === PRINT_JOB_TOKEN) return next();
   return res.status(401).json({ ok: false, message: 'Token de impresion invalido' });
 }
@@ -1820,7 +1825,7 @@ function createManualOrderForTable(db, table, payload = {}, actor = {}) {
     tableName: table.name,
     customerName: session.customerName || '',
     customerPhone: session.customerPhone || '',
-    note: cleanString(req.body.note, 280),
+    note: orderNote,
     items: cleanItems,
     total,
     status: 'new',
@@ -2004,7 +2009,7 @@ app.get('/api/print-jobs', requirePrintToken, (req, res) => {
   const db = readDb();
   const branchId = String(req.query.branch_id || req.query.branchId || PRINT_BRANCH_ID);
   const rawAreas = String(req.query.areas || req.query.area || '').split(',').map(normalizePrintArea).filter(Boolean);
-  const rawStatuses = String(req.query.status || 'pending,error').split(',').map(item => item.trim()).filter(Boolean);
+  const rawStatuses = String(req.query.status || 'pending').split(',').map(item => item.trim()).filter(Boolean);
   const jobs = (db.printJobs || [])
     .filter(job => String(job.branch_id || PRINT_BRANCH_ID) === branchId)
     .filter(job => !rawAreas.length || rawAreas.includes(normalizePrintArea(job.printer_area)))
@@ -2420,9 +2425,8 @@ app.post('/api/public/table/:tableId/order', (req, res) => {
     fingerprint
   });
   if (duplicateOrder) {
-    const printJobs = createPrintJobsForOrder(db, duplicateOrder);
     writeDb(db);
-    return res.json({ ok: true, order: publicOrder(duplicateOrder), printJobs, duplicate: true, message: 'Pedido ya registrado; no se duplico.' });
+    return res.json({ ok: true, order: publicOrder(duplicateOrder), duplicate: true, message: 'Pedido ya registrado; no se duplico.' });
   }
 
   if (customerPhone) {
@@ -2479,7 +2483,6 @@ app.post('/api/public/table/:tableId/order', (req, res) => {
     updatedAt: nowIso(),
     orderId: order.id
   });
-  const printJobs = createPrintJobsForOrder(db, order);
   writeDb(db);
   res.json({ ok: true, order: publicOrder(order), message: 'Tu pedido fue enviado. Un mesero lo confirmará.' });
 });
