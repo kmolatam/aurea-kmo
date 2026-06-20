@@ -943,8 +943,31 @@ function printTokenFromRequest(req) {
   return String(req.query.token || req.headers['x-aurea-token'] || req.body?.token || '').trim();
 }
 
+function printJobsNotConfiguredError() {
+  const error = new Error('AUREA_PRINT_TOKEN no configurado');
+  error.status = 503;
+  return error;
+}
+
+function ensurePrintJobsConfigured() {
+  if (!PRINT_JOB_TOKEN) throw printJobsNotConfiguredError();
+}
+
+function requirePrintJobsConfigured(req, res, next) {
+  try {
+    ensurePrintJobsConfigured();
+    return next();
+  } catch (error) {
+    return res.status(error.status || 503).json({ ok: false, message: error.message || 'AUREA_PRINT_TOKEN no configurado' });
+  }
+}
+
 function requirePrintToken(req, res, next) {
-  if (!PRINT_JOB_TOKEN) return res.status(503).json({ ok: false, message: 'AUREA_PRINT_TOKEN no configurado' });
+  try {
+    ensurePrintJobsConfigured();
+  } catch (error) {
+    return res.status(error.status || 503).json({ ok: false, message: error.message || 'AUREA_PRINT_TOKEN no configurado' });
+  }
   if (printTokenFromRequest(req) === PRINT_JOB_TOKEN) return next();
   return res.status(401).json({ ok: false, message: 'Token de impresion invalido' });
 }
@@ -1102,6 +1125,7 @@ function publicPrintJob(job) {
 }
 
 function createPrintJobsForOrder(db, order, options = {}) {
+  ensurePrintJobsConfigured();
   db.printJobs = Array.isArray(db.printJobs) ? db.printJobs : [];
   const branchId = String(options.branchId || order.branch_id || order.branchId || PRINT_BRANCH_ID);
   const byArea = new Map();
@@ -1864,7 +1888,7 @@ function createManualOrderForTable(db, table, payload = {}, actor = {}) {
 }
 
 
-app.post('/api/staff/tables/:tableId/order', requireStaff, (req, res) => {
+app.post('/api/staff/tables/:tableId/order', requireStaff, requirePrintJobsConfigured, (req, res) => {
   const db = readDb();
   const table = db.tables.find(t => t.id === req.params.tableId);
   if (!table) return res.status(404).json({ ok: false, message: 'Mesa no encontrada' });
@@ -1884,7 +1908,7 @@ app.post('/api/staff/tables/:tableId/order', requireStaff, (req, res) => {
   }
 });
 
-app.post('/api/admin/manual-order', requireLogin, (req, res) => {
+app.post('/api/admin/manual-order', requireLogin, requirePrintJobsConfigured, (req, res) => {
   const db = readDb();
   const table = db.tables.find(t => t.id === req.body.tableId);
   if (!table) return res.status(404).json({ ok: false, message: 'Selecciona una mesa válida' });
@@ -2542,7 +2566,7 @@ app.patch('/api/admin/whatsapp-orders/:id', requireLogin, (req, res) => {
   res.json({ ok: true, whatsappOrder: order });
 });
 
-app.post('/api/admin/whatsapp-orders/:id/send-to-kitchen', requireLogin, (req, res) => {
+app.post('/api/admin/whatsapp-orders/:id/send-to-kitchen', requireLogin, requirePrintJobsConfigured, (req, res) => {
   const db = readDb();
   const ticket = db.whatsappOrders.find(item => item.id === req.params.id);
   if (!ticket) return res.status(404).json({ ok: false, message: 'Pedido WhatsApp no encontrado' });
