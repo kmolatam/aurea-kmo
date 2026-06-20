@@ -142,6 +142,10 @@ const ADMIN_USER = process.env.AUREA_USER || 'lalomita';
 const ADMIN_PASS = process.env.AUREA_PASS || '1564';
 const SUPER_ADMIN_USER = process.env.AUREA_SUPER_USER || 'superadmin';
 const SUPER_ADMIN_PASS = process.env.AUREA_SUPER_PASS || 'aurea-super-1564';
+const PRINT_BRANCH_ID = String(process.env.AUREA_BRANCH_ID || process.env.BRANCH_ID || '1');
+const PRINT_JOB_TOKEN = String(process.env.AUREA_PRINT_TOKEN || process.env.AUREA_BRANCH_TOKEN || 'kmo_aurea_2026');
+const PRINT_JOB_LEASE_MS = Math.max(30000, Number(process.env.AUREA_PRINT_JOB_LEASE_MS || 120000));
+const ORDER_DUPLICATE_WINDOW_MS = Math.max(3000, Number(process.env.AUREA_ORDER_DUPLICATE_WINDOW_MS || 8000));
 
 app.use(express.json({ limit: '8mb' }));
 app.use(express.urlencoded({ extended: true, limit: '8mb' }));
@@ -197,6 +201,7 @@ function ensureDbShape(db) {
   db.restaurant.printSettings = db.restaurant.printSettings || {};
   db.restaurant.printSettings = {
     kitchenAutoPrintEnabled: db.restaurant.printSettings.kitchenAutoPrintEnabled !== false,
+    commandPrintJobsEnabled: db.restaurant.printSettings.commandPrintJobsEnabled !== false,
     ticketWidthMm: Math.max(58, Math.min(80, Number(db.restaurant.printSettings.ticketWidthMm || 58)))
   };
   db.restaurant.instanceSlug = cleanSlug(db.restaurant.instanceSlug || db.restaurant.name || 'aurea-demo');
@@ -244,6 +249,7 @@ function ensureDbShape(db) {
   db.orders = Array.isArray(db.orders) ? db.orders : [];
   db.contacts = Array.isArray(db.contacts) ? db.contacts : [];
   db.billRequests = Array.isArray(db.billRequests) ? db.billRequests : [];
+  db.printJobs = Array.isArray(db.printJobs) ? db.printJobs : [];
   db.payments = Array.isArray(db.payments) ? db.payments : [];
   db.expenses = Array.isArray(db.expenses) ? db.expenses : [];
   db.dailyClosures = Array.isArray(db.dailyClosures) ? db.dailyClosures : [];
@@ -327,6 +333,28 @@ function ensureDbShape(db) {
       item.modifierGroupName = cleanString(item.modifierGroupName || 'Opción', 60) || 'Opción';
     }
     order.updatedAt = order.updatedAt || order.createdAt || nowIso();
+  });
+  db.printJobs.forEach(job => {
+    job.id = job.id || makeId('job');
+    job.branch_id = String(job.branch_id || job.branchId || PRINT_BRANCH_ID);
+    job.table_session_id = job.table_session_id || job.tableSessionId || '';
+    job.order_id = job.order_id || job.orderId || '';
+    job.order_batch_id = job.order_batch_id || job.orderBatchId || job.order_id || '';
+    job.table_id = job.table_id || job.tableId || '';
+    job.table_name = job.table_name || job.tableName || '';
+    job.printer_area = normalizePrintArea(job.printer_area || job.printerArea || job.area || 'barra_caliente');
+    job.title = cleanString(job.title || 'COMANDA', 80);
+    job.content = String(job.content || job.text || '');
+    job.status = ['pending', 'printing', 'printed', 'error', 'cancelled'].includes(job.status) ? job.status : 'pending';
+    job.attempts = Math.max(0, Number(job.attempts || 0));
+    job.idempotency_key = cleanString(job.idempotency_key || job.idempotencyKey || `${job.branch_id}:${job.order_id}:${job.printer_area}`, 220);
+    job.error_message = cleanString(job.error_message || job.errorMessage || '', 300);
+    job.claimed_by = cleanString(job.claimed_by || job.claimedBy || '', 120);
+    job.claim_token = cleanString(job.claim_token || job.claimToken || '', 120);
+    job.claimed_at = job.claimed_at || job.claimedAt || '';
+    job.printed_at = job.printed_at || job.printedAt || '';
+    job.created_at = job.created_at || job.createdAt || nowIso();
+    job.updated_at = job.updated_at || job.updatedAt || job.created_at;
   });
   db.counters = db.counters || {};
   db.counters.command = Number(db.counters.command || Math.max(0, ...db.orders.map(o => Number(o.commandNumber || 0))));
@@ -521,7 +549,9 @@ function publicOrder(order) {
     readyAt: order.readyAt || '',
     deliveredAt: order.deliveredAt || '',
     assignedStaffId: order.assignedStaffId || '',
-    assignedStaffName: order.assignedStaffName || ''
+    assignedStaffName: order.assignedStaffName || '',
+    printJobIds: order.printJobIds || [],
+    printJobStatus: order.printJobStatus || ''
   };
 }
 
@@ -903,6 +933,262 @@ function normalizeOrderLines(db, rawItems) {
     }
   }
   return cleanItems;
+}
+
+function printTokenFromRequest(req) {
+  return String(req.query.token || req.headers['x-aurea-token'] || req.body?.token || '').trim();
+}
+
+function requirePrintToken(req, res, next) {
+  if (printTokenFromRequest(req) === PRINT_JOB_TOKEN) return next();
+  return res.status(401).json({ ok: false, message: 'Token de impresion invalido' });
+}
+
+function normalizePrintArea(value) {
+  const raw = String(value || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  if (!raw) return '';
+  const aliases = {
+    hot: 'barra_caliente',
+    cocina: 'barra_caliente',
+    kitchen: 'barra_caliente',
+    caliente: 'barra_caliente',
+    barra_caliente: 'barra_caliente',
+    barra_caliente_: 'barra_caliente',
+    cold: 'barra_fria',
+    fria: 'barra_fria',
+    frio: 'barra_fria',
+    barra_fria: 'barra_fria',
+    drinks: 'bebidas',
+    drink: 'bebidas',
+    bebida: 'bebidas',
+    bebidas: 'bebidas',
+    bar: 'bebidas',
+    barra: 'bebidas',
+    ticket: 'caja',
+    cuenta: 'caja',
+    recibo: 'caja',
+    caja: 'caja'
+  };
+  return aliases[raw] || raw;
+}
+
+function kitchenStationFromPrintArea(area) {
+  const clean = normalizePrintArea(area);
+  if (clean === 'barra_fria') return 'cold';
+  if (clean === 'bebidas') return 'drinks';
+  return 'hot';
+}
+
+function printerAreaForItem(item) {
+  return normalizePrintArea(item.printer_area || item.printerArea || item.printArea || item.area || item.kitchenStation || 'barra_caliente');
+}
+
+function areaLabelForPrintJob(db, area) {
+  const clean = normalizePrintArea(area);
+  if (clean === 'barra_caliente') return 'BARRA CALIENTE';
+  if (clean === 'barra_fria') return 'BARRA FRIA';
+  if (clean === 'bebidas') return 'BEBIDAS';
+  if (clean === 'caja') return 'CAJA';
+  return kitchenStationLabel(clean, db.restaurant?.kitchenStations || DEFAULT_KITCHEN_STATIONS).toUpperCase();
+}
+
+function orderFingerprint(items, note = '') {
+  const payload = {
+    note: cleanString(note, 280),
+    items: (items || []).map(item => ({
+      itemId: item.itemId || '',
+      name: item.name || '',
+      qty: Number(item.qty || 0),
+      note: item.note || '',
+      modifierName: item.modifierName || '',
+      dinerName: item.dinerName || '',
+      area: printerAreaForItem(item)
+    }))
+  };
+  return Buffer.from(JSON.stringify(payload)).toString('base64').slice(0, 180);
+}
+
+function findDuplicateOrder(db, { tableId, sessionId, idempotencyKey, fingerprint }) {
+  if (idempotencyKey) {
+    const byKey = (db.orders || []).find(order => order.idempotencyKey === idempotencyKey || order.idempotency_key === idempotencyKey);
+    if (byKey) return byKey;
+  }
+  if (!fingerprint || !tableId) return null;
+  const now = Date.now();
+  return (db.orders || []).find(order => {
+    if (order.status === 'cancelled') return false;
+    if (order.tableId !== tableId) return false;
+    if (sessionId && order.sessionId && order.sessionId !== sessionId) return false;
+    if (order.fingerprint !== fingerprint) return false;
+    const created = Date.parse(order.createdAt || order.created_at || '');
+    return Number.isFinite(created) && now - created <= ORDER_DUPLICATE_WINDOW_MS;
+  }) || null;
+}
+
+function pushWrapped(lines, value, width = 30, indent = '') {
+  const clean = String(value || '').replace(/\s+/g, ' ').trim();
+  if (!clean) return;
+  let current = '';
+  for (const word of clean.split(' ')) {
+    const next = current ? `${current} ${word}` : word;
+    if ((indent + next).length > width && current) {
+      lines.push(indent + current);
+      current = word;
+    } else {
+      current = next;
+    }
+  }
+  if (current) lines.push(indent + current);
+}
+
+function buildCommandPrintContent(db, order, items, area) {
+  const lines = [];
+  const width = 30;
+  lines.push(`MESA: ${cleanString(order.tableName || order.table_name || 'Mesa', 24)}`);
+  lines.push(`COMANDA #${order.commandNumber || '-'}`);
+  lines.push(`AREA: ${areaLabelForPrintJob(db, area)}`);
+  if (order.assignedStaffName) pushWrapped(lines, `MESERO: ${order.assignedStaffName}`, width);
+  if (order.customerName) pushWrapped(lines, `CLIENTE: ${order.customerName}`, width);
+  lines.push('------------------------------');
+  for (const item of items || []) {
+    pushWrapped(lines, `${Number(item.qty || 0)} x ${item.name || 'Producto'}`, width);
+    if (item.modifierName) pushWrapped(lines, `${item.modifierGroupName || 'Opcion'}: ${item.modifierName}`, width, '  ');
+    if (item.note) pushWrapped(lines, `Nota: ${item.note}`, width, '  ');
+    lines.push('');
+  }
+  if (order.note) {
+    lines.push('------------------------------');
+    pushWrapped(lines, `Nota general: ${order.note}`, width);
+  }
+  lines.push('------------------------------');
+  lines.push(`ID: ${order.id || ''}`.slice(0, width));
+  lines.push('');
+  return lines.join('\n');
+}
+
+function publicPrintJob(job) {
+  return {
+    id: job.id,
+    branch_id: job.branch_id,
+    table_session_id: job.table_session_id || '',
+    order_id: job.order_id || '',
+    order_batch_id: job.order_batch_id || job.order_id || '',
+    table_id: job.table_id || '',
+    table_name: job.table_name || '',
+    printer_area: job.printer_area,
+    title: job.title,
+    content: job.content,
+    text: job.content,
+    status: job.status,
+    attempts: job.attempts || 0,
+    error_message: job.error_message || '',
+    claimed_by: job.claimed_by || '',
+    claimed_at: job.claimed_at || '',
+    printed_at: job.printed_at || '',
+    created_at: job.created_at,
+    updated_at: job.updated_at
+  };
+}
+
+function createPrintJobsForOrder(db, order, options = {}) {
+  db.printJobs = Array.isArray(db.printJobs) ? db.printJobs : [];
+  const branchId = String(options.branchId || order.branch_id || order.branchId || PRINT_BRANCH_ID);
+  const byArea = new Map();
+  for (const item of order.items || []) {
+    const area = printerAreaForItem(item);
+    if (area === 'caja') continue;
+    if (!byArea.has(area)) byArea.set(area, []);
+    byArea.get(area).push(item);
+  }
+
+  const jobs = [];
+  for (const [area, items] of byArea.entries()) {
+    const idempotencyKey = `${branchId}:${order.id}:${area}`;
+    let job = db.printJobs.find(existing => existing.idempotency_key === idempotencyKey);
+    if (!job) {
+      const now = nowIso();
+      job = {
+        id: makeId('job'),
+        branch_id: branchId,
+        table_session_id: order.sessionId || order.table_session_id || '',
+        order_id: order.id,
+        order_batch_id: order.id,
+        table_id: order.tableId || order.table_id || '',
+        table_name: order.tableName || order.table_name || '',
+        printer_area: area,
+        title: `COMANDA #${order.commandNumber || '-'}`,
+        content: buildCommandPrintContent(db, order, items, area),
+        status: 'pending',
+        attempts: 0,
+        idempotency_key: idempotencyKey,
+        error_message: '',
+        claimed_by: '',
+        claim_token: '',
+        claimed_at: '',
+        printed_at: '',
+        created_at: now,
+        updated_at: now
+      };
+      db.printJobs.unshift(job);
+    }
+    jobs.push(job);
+  }
+
+  order.printJobIds = Array.from(new Set([...(order.printJobIds || []), ...jobs.map(job => job.id)]));
+  order.printJobStatus = jobs.some(job => job.status === 'error') ? 'error' : (jobs.every(job => job.status === 'printed') ? 'printed' : 'pending');
+  return jobs.map(publicPrintJob);
+}
+
+function normalizeExternalOrderLines(db, rawItems) {
+  const cleanItems = [];
+  for (const line of Array.isArray(rawItems) ? rawItems : []) {
+    const menuItem = line.itemId ? db.menuItems.find(item => item.id === line.itemId && item.available !== false) : null;
+    const qty = Math.max(0, Math.min(50, Math.floor(Number(line.qty || line.quantity || 0))));
+    if (qty <= 0) continue;
+    const area = normalizePrintArea(line.printer_area || line.printerArea || line.printArea || line.area || menuItem?.kitchenStation || 'barra_caliente');
+    const station = menuItem ? normalizeKitchenStation(menuItem.kitchenStation || kitchenStationFromPrintArea(area)) : kitchenStationFromPrintArea(area);
+    const price = Number(menuItem?.price ?? line.price ?? line.unit_price ?? line.unitPrice ?? 0);
+    const name = cleanString(menuItem?.name || line.name || line.product_name || line.productName || line.title || 'Producto', 120);
+    const modifierName = cleanModifierName(line.modifierName || line.modifier || line.optionName || '');
+    cleanItems.push({
+      itemId: menuItem?.id || cleanString(line.itemId || line.product_id || line.productId || '', 80),
+      name,
+      price,
+      qty,
+      note: cleanString(line.note || line.notes || '', 180),
+      modifierName,
+      modifierGroupName: cleanString(line.modifierGroupName || 'Opcion', 60) || 'Opcion',
+      kitchenStation: station,
+      kitchenStationLabel: kitchenStationLabel(station, db.restaurant.kitchenStations),
+      printer_area: area,
+      dinerName: cleanDinerName(line.dinerName || line.personName || ''),
+      subtotal: roundMoney(price * qty)
+    });
+  }
+  return cleanItems;
+}
+
+function ensureTableForExternalOrder(db, payload) {
+  const tableId = cleanString(payload.table_id || payload.tableId || payload.table || 'externa', 80) || 'externa';
+  let table = db.tables.find(item => item.id === tableId);
+  if (!table) {
+    table = {
+      id: tableId,
+      name: cleanString(payload.table_name || payload.tableName || `Mesa ${tableId}`, 80),
+      active: true,
+      createdAt: nowIso()
+    };
+    db.tables.push(table);
+  } else if ((payload.table_name || payload.tableName) && !table.name) {
+    table.name = cleanString(payload.table_name || payload.tableName, 80);
+  }
+  return table;
 }
 
 function closeTableSession(db, tableId, staff = null, options = {}) {
@@ -1497,6 +1783,20 @@ function createManualOrderForTable(db, table, payload = {}, actor = {}) {
     throw err;
   }
 
+  const orderNote = cleanString(payload.note || 'Comanda manual', 280);
+  const idempotencyKey = cleanString(payload.idempotency_key || payload.idempotencyKey || '', 180);
+  const fingerprint = orderFingerprint(cleanItems, orderNote);
+  const duplicateOrder = findDuplicateOrder(db, {
+    tableId: table.id,
+    sessionId: session.id,
+    idempotencyKey,
+    fingerprint
+  });
+  if (duplicateOrder) {
+    const printJobs = createPrintJobsForOrder(db, duplicateOrder);
+    return { order: duplicateOrder, session, printJobs, duplicate: true };
+  }
+
   if (session.customerPhone) {
     upsertContact(db, {
       tableId: table.id,
@@ -1520,7 +1820,7 @@ function createManualOrderForTable(db, table, payload = {}, actor = {}) {
     tableName: table.name,
     customerName: session.customerName || '',
     customerPhone: session.customerPhone || '',
-    note: cleanString(payload.note || 'Comanda manual', 280),
+    note: cleanString(req.body.note, 280),
     items: cleanItems,
     total,
     status: 'new',
@@ -1529,6 +1829,8 @@ function createManualOrderForTable(db, table, payload = {}, actor = {}) {
     assignedStaffId: session.assignedStaffId || '',
     assignedStaffName: session.assignedStaffName || actor.adminName || '',
     source: payload.source || 'manual',
+    idempotencyKey,
+    fingerprint,
     confirmedAt: '',
     createdAt: nowIso(),
     updatedAt: nowIso()
@@ -1552,7 +1854,8 @@ function createManualOrderForTable(db, table, payload = {}, actor = {}) {
     orderId: order.id
   });
 
-  return { order, session };
+  const printJobs = createPrintJobsForOrder(db, order);
+  return { order, session, printJobs };
 }
 
 
@@ -1565,12 +1868,12 @@ app.post('/api/staff/tables/:tableId/order', requireStaff, (req, res) => {
   if (!staff) return res.status(401).json({ ok: false, message: 'Mesero no autorizado' });
 
   try {
-    const { order } = createManualOrderForTable(db, table, {
+    const { order, printJobs, duplicate } = createManualOrderForTable(db, table, {
       ...req.body,
       source: req.body.source || 'staff_order'
     }, { staff });
     writeDb(db);
-    res.json({ ok: true, order: publicOrder(order), message: 'Comanda levantada por mesero.' });
+    res.json({ ok: true, order: publicOrder(order), printJobs, duplicate: Boolean(duplicate), message: duplicate ? 'Comanda ya registrada; no se duplico.' : 'Comanda levantada por mesero.' });
   } catch (error) {
     res.status(error.status || 500).json({ ok: false, message: error.message || 'No se pudo levantar la comanda' });
   }
@@ -1587,7 +1890,7 @@ app.post('/api/admin/manual-order', requireLogin, (req, res) => {
   }
 
   try {
-    const { order } = createManualOrderForTable(db, table, {
+    const { order, printJobs, duplicate } = createManualOrderForTable(db, table, {
       ...req.body,
       source: 'admin_manual'
     }, {
@@ -1596,10 +1899,213 @@ app.post('/api/admin/manual-order', requireLogin, (req, res) => {
       enforceAssignment: false
     });
     writeDb(db);
-    res.json({ ok: true, order: publicOrder(order), message: 'Comanda manual creada.' });
+    res.json({ ok: true, order: publicOrder(order), printJobs, duplicate: Boolean(duplicate), message: duplicate ? 'Comanda ya registrada; no se duplico.' : 'Comanda manual creada.' });
   } catch (error) {
     res.status(error.status || 500).json({ ok: false, message: error.message || 'No se pudo crear la comanda manual' });
   }
+});
+
+app.post('/api/orders/confirm', requirePrintToken, (req, res) => {
+  const db = readDb();
+  const payload = req.body || {};
+  const branchId = String(payload.branch_id || payload.branchId || PRINT_BRANCH_ID);
+  const table = ensureTableForExternalOrder(db, payload);
+  const cleanItems = normalizeExternalOrderLines(db, payload.items);
+  if (!cleanItems.length) return res.status(400).json({ ok: false, message: 'Pedido vacio' });
+
+  const customerName = cleanString(payload.customer_name || payload.customerName || payload.name || '', 80);
+  const customerPhone = normalizePhone(payload.customer_phone || payload.customerPhone || payload.phone || '');
+  const waiterName = cleanString(payload.waiter_name || payload.waiterName || payload.staff_name || payload.staffName || '', 80);
+  const session = createOrUpdateTableSession(db, table, { customerName, customerPhone, source: 'api_orders_confirm' });
+  if (waiterName && !session.assignedStaffName) {
+    session.assignedStaffName = waiterName;
+    session.takenAt = session.takenAt || nowIso();
+  }
+
+  const orderNote = cleanString(payload.note || payload.notes || '', 280);
+  const idempotencyKey = cleanString(payload.idempotency_key || payload.idempotencyKey || '', 180);
+  const fingerprint = orderFingerprint(cleanItems, orderNote);
+  const duplicateOrder = findDuplicateOrder(db, {
+    tableId: table.id,
+    sessionId: session.id,
+    idempotencyKey,
+    fingerprint
+  });
+  if (duplicateOrder) {
+    const jobs = createPrintJobsForOrder(db, duplicateOrder, { branchId });
+    writeDb(db);
+    return res.json({ ok: true, order: publicOrder(duplicateOrder), jobs, printJobs: jobs, duplicate: true, message: 'Pedido ya registrado; no se duplico.' });
+  }
+
+  if (customerPhone) {
+    upsertContact(db, {
+      tableId: table.id,
+      phone: customerPhone,
+      name: customerName,
+      source: 'api_orders_confirm',
+      optInPromos: payload.optInPromos !== false,
+      countOrder: true,
+      assignedStaffId: session.assignedStaffId,
+      assignedStaffName: session.assignedStaffName || waiterName
+    });
+  }
+
+  const total = roundMoney(cleanItems.reduce((sum, item) => sum + Number(item.subtotal || 0), 0));
+  db.counters = db.counters || {};
+  db.counters.command = Number(db.counters.command || 0) + 1;
+  const order = {
+    id: makeId('order'),
+    branch_id: branchId,
+    commandNumber: db.counters.command,
+    tableId: table.id,
+    tableName: table.name,
+    customerName,
+    customerPhone,
+    note: orderNote,
+    items: cleanItems,
+    total,
+    status: 'new',
+    estimatedTime: '',
+    sessionId: session.id,
+    assignedStaffId: session.assignedStaffId || '',
+    assignedStaffName: session.assignedStaffName || waiterName,
+    source: 'api_orders_confirm',
+    idempotencyKey,
+    fingerprint,
+    confirmedAt: '',
+    createdAt: nowIso(),
+    updatedAt: nowIso()
+  };
+
+  db.orders.unshift(order);
+  db.alerts.unshift({
+    id: makeId('alert'),
+    tableId: table.id,
+    tableName: table.name,
+    type: 'order',
+    customerName,
+    customerPhone,
+    note: `Comanda #${order.commandNumber} - ${cleanItems.length} producto(s) - $${total}`,
+    status: 'new',
+    sessionId: session.id,
+    assignedStaffId: order.assignedStaffId,
+    assignedStaffName: order.assignedStaffName,
+    createdAt: nowIso(),
+    updatedAt: nowIso(),
+    orderId: order.id
+  });
+
+  const jobs = createPrintJobsForOrder(db, order, { branchId });
+  writeDb(db);
+  res.json({ ok: true, order: publicOrder(order), jobs, printJobs: jobs, message: 'Pedido confirmado y comandas en cola.' });
+});
+
+app.get('/api/print-jobs', requirePrintToken, (req, res) => {
+  const db = readDb();
+  const branchId = String(req.query.branch_id || req.query.branchId || PRINT_BRANCH_ID);
+  const rawAreas = String(req.query.areas || req.query.area || '').split(',').map(normalizePrintArea).filter(Boolean);
+  const rawStatuses = String(req.query.status || 'pending,error').split(',').map(item => item.trim()).filter(Boolean);
+  const jobs = (db.printJobs || [])
+    .filter(job => String(job.branch_id || PRINT_BRANCH_ID) === branchId)
+    .filter(job => !rawAreas.length || rawAreas.includes(normalizePrintArea(job.printer_area)))
+    .filter(job => !rawStatuses.length || rawStatuses.includes(job.status))
+    .sort((a, b) => String(a.created_at || '').localeCompare(String(b.created_at || '')))
+    .slice(0, 50)
+    .map(publicPrintJob);
+  res.json({ ok: true, jobs });
+});
+
+app.post('/api/print-jobs/claim', requirePrintToken, (req, res) => {
+  const db = readDb();
+  const branchId = String(req.body.branch_id || req.body.branchId || PRINT_BRANCH_ID);
+  const deviceId = cleanString(req.body.device_id || req.body.deviceId || '', 120);
+  const areas = (Array.isArray(req.body.areas) ? req.body.areas : [])
+    .map(normalizePrintArea)
+    .filter(Boolean);
+  const maxJobs = Math.max(1, Math.min(20, Number(req.body.max_jobs || req.body.maxJobs || 10)));
+
+  if (!deviceId || !areas.length) return res.json({ ok: true, jobs: [] });
+
+  const now = Date.now();
+  const claimToken = makeId('claim');
+  const eligible = (db.printJobs || [])
+    .filter(job => String(job.branch_id || PRINT_BRANCH_ID) === branchId)
+    .filter(job => areas.includes(normalizePrintArea(job.printer_area)))
+    .filter(job => {
+      if (job.status === 'pending') return true;
+      if (job.status !== 'printing') return false;
+      const claimed = Date.parse(job.claimed_at || job.updated_at || '');
+      return Number.isFinite(claimed) && now - claimed > PRINT_JOB_LEASE_MS;
+    })
+    .sort((a, b) => String(a.created_at || '').localeCompare(String(b.created_at || '')))
+    .slice(0, maxJobs);
+
+  const claimedAt = nowIso();
+  for (const job of eligible) {
+    job.status = 'printing';
+    job.attempts = Number(job.attempts || 0) + 1;
+    job.claimed_by = deviceId;
+    job.claim_token = claimToken;
+    job.claimed_at = claimedAt;
+    job.updated_at = claimedAt;
+    job.error_message = '';
+  }
+
+  writeDb(db);
+  res.json({ ok: true, jobs: eligible.map(publicPrintJob) });
+});
+
+app.post('/api/print-jobs/:id/status', requirePrintToken, (req, res) => {
+  const db = readDb();
+  const job = (db.printJobs || []).find(item => item.id === req.params.id);
+  if (!job) return res.status(404).json({ ok: false, message: 'Print job no encontrado' });
+
+  const status = cleanString(req.body.status || '', 30);
+  if (!['pending', 'printing', 'printed', 'error', 'cancelled'].includes(status)) {
+    return res.status(400).json({ ok: false, message: 'Estado de impresion invalido' });
+  }
+
+  const now = nowIso();
+  job.status = status;
+  job.updated_at = now;
+  job.error_message = status === 'error' ? cleanString(req.body.error || req.body.error_message || '', 300) : '';
+  if (req.body.device_id || req.body.deviceId) job.claimed_by = cleanString(req.body.device_id || req.body.deviceId, 120);
+  if (status === 'printed') {
+    job.printed_at = now;
+  }
+  if (status === 'pending') {
+    job.claimed_by = '';
+    job.claim_token = '';
+    job.claimed_at = '';
+    job.printed_at = '';
+  }
+
+  const order = (db.orders || []).find(item => item.id === job.order_id);
+  if (order) {
+    const orderJobs = (db.printJobs || []).filter(item => item.order_id === order.id);
+    order.printJobStatus = orderJobs.some(item => item.status === 'error')
+      ? 'error'
+      : (orderJobs.length && orderJobs.every(item => item.status === 'printed') ? 'printed' : 'pending');
+    order.updatedAt = now;
+  }
+
+  writeDb(db);
+  res.json({ ok: true, job: publicPrintJob(job) });
+});
+
+app.post('/api/print-jobs/:id/retry', requirePrintToken, (req, res) => {
+  const db = readDb();
+  const job = (db.printJobs || []).find(item => item.id === req.params.id);
+  if (!job) return res.status(404).json({ ok: false, message: 'Print job no encontrado' });
+  job.status = 'pending';
+  job.error_message = '';
+  job.claimed_by = '';
+  job.claim_token = '';
+  job.claimed_at = '';
+  job.printed_at = '';
+  job.updated_at = nowIso();
+  writeDb(db);
+  res.json({ ok: true, job: publicPrintJob(job), message: 'Comanda lista para reintento.' });
 });
 
 app.get('/api/public/restaurant', (req, res) => {
@@ -1904,6 +2410,20 @@ app.post('/api/public/table/:tableId/order', (req, res) => {
   const customerName = cleanString(req.body.customerName, 80);
   const customerPhone = normalizePhone(req.body.customerPhone);
   const session = createOrUpdateTableSession(db, table, { customerName, customerPhone, source: 'order', diners: req.body.diners });
+  const orderNote = cleanString(req.body.note, 280);
+  const idempotencyKey = cleanString(req.body.idempotency_key || req.body.idempotencyKey || '', 180);
+  const fingerprint = orderFingerprint(cleanItems, orderNote);
+  const duplicateOrder = findDuplicateOrder(db, {
+    tableId: table.id,
+    sessionId: session.id,
+    idempotencyKey,
+    fingerprint
+  });
+  if (duplicateOrder) {
+    const printJobs = createPrintJobsForOrder(db, duplicateOrder);
+    writeDb(db);
+    return res.json({ ok: true, order: publicOrder(duplicateOrder), printJobs, duplicate: true, message: 'Pedido ya registrado; no se duplico.' });
+  }
 
   if (customerPhone) {
     upsertContact(db, {
@@ -1928,13 +2448,16 @@ app.post('/api/public/table/:tableId/order', (req, res) => {
     tableName: table.name,
     customerName,
     customerPhone,
-    note: cleanString(req.body.note, 280),
+    note: orderNote,
     items: cleanItems,
     total,
     status: 'new',
     estimatedTime: '',
     sessionId: session.id,
     ...sessionAssignmentPayload(session),
+    source: 'public_table',
+    idempotencyKey,
+    fingerprint,
     confirmedAt: '',
     createdAt: nowIso(),
     updatedAt: nowIso()
@@ -1956,6 +2479,7 @@ app.post('/api/public/table/:tableId/order', (req, res) => {
     updatedAt: nowIso(),
     orderId: order.id
   });
+  const printJobs = createPrintJobsForOrder(db, order);
   writeDb(db);
   res.json({ ok: true, order: publicOrder(order), message: 'Tu pedido fue enviado. Un mesero lo confirmará.' });
 });
@@ -2037,6 +2561,9 @@ app.post('/api/admin/whatsapp-orders/:id/send-to-kitchen', requireLogin, (req, r
       price: total,
       qty: 1,
       note: ticket.itemsText || ticket.message || '',
+      kitchenStation: 'hot',
+      kitchenStationLabel: kitchenStationLabel('hot', db.restaurant.kitchenStations),
+      printer_area: 'barra_caliente',
       dinerName: '',
       subtotal: total
     }],
@@ -2079,8 +2606,9 @@ app.post('/api/admin/whatsapp-orders/:id/send-to-kitchen', requireLogin, (req, r
     countOrder: true,
     note: ticket.itemsText
   });
+  const printJobs = createPrintJobsForOrder(db, order);
   writeDb(db);
-  res.json({ ok: true, whatsappOrder: ticket, order: publicOrder(order) });
+  res.json({ ok: true, whatsappOrder: ticket, order: publicOrder(order), printJobs });
 });
 
 app.delete('/api/admin/whatsapp-orders/:id', requireLogin, (req, res) => {
@@ -2119,6 +2647,7 @@ app.put('/api/admin/restaurant', requireLogin, (req, res) => {
     kitchenStations: req.body.kitchenStations !== undefined ? normalizeKitchenStations(req.body.kitchenStations) : normalizeKitchenStations(db.restaurant.kitchenStations),
     printSettings: {
       kitchenAutoPrintEnabled: req.body.printSettings?.kitchenAutoPrintEnabled !== false && req.body.printSettings?.kitchenAutoPrintEnabled !== 'false',
+      commandPrintJobsEnabled: req.body.printSettings?.commandPrintJobsEnabled !== false && req.body.printSettings?.commandPrintJobsEnabled !== 'false',
       ticketWidthMm: Math.max(58, Math.min(80, Number(req.body.printSettings?.ticketWidthMm || db.restaurant.printSettings?.ticketWidthMm || 58)))
     },
     whatsappOfficial: {

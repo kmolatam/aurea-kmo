@@ -1066,11 +1066,7 @@ async function submitStaffOrder() {
       method: 'POST',
       body: JSON.stringify(payload)
     });
-    if (data.order && window.AureaPrintBridge?.shouldUseBridge?.()) {
-      setTimeout(() => {
-        try { printStaffOrderDataBridge(data.order); } catch (error) { console.warn('No se pudo autoimprimir comanda', error); }
-      }, 140);
-    }
+    if (data.printJobs?.length) console.log('Comandas en cola de impresion', data.printJobs.map(job => job.id));
     resetStaffOrderDraft();
     closeStaffOrderModal();
     toast(`Pedido #${data.order.commandNumber} enviado a cocina`);

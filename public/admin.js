@@ -1640,7 +1640,7 @@ async function submitAdminManualOrder() {
     closeAdminManualOrderModal();
     toast(`Comanda #${data.order.commandNumber} creada`);
     await loadData(true);
-    setTimeout(() => printAdminOrderDataBridge(data.order), 250);
+    if (data.printJobs?.length) console.log('Comandas en cola de impresion', data.printJobs.map(job => job.id));
   } catch (error) {
     toast(error.message);
   }

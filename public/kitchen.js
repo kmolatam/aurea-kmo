@@ -243,7 +243,12 @@ function printKitchenTestTicket() {
   `, { footer: 'Módulo de impresión web', bottomGapMm: 24 });
 }
 
+function commandPrintJobsEnabled() {
+  return kitchenDb?.restaurant?.printSettings?.commandPrintJobsEnabled !== false;
+}
+
 function autoPrintAllowedByRestaurant() {
+  if (commandPrintJobsEnabled()) return false;
   return kitchenDb?.restaurant?.printSettings?.kitchenAutoPrintEnabled !== false;
 }
 
