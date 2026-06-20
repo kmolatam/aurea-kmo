@@ -544,14 +544,16 @@ async function releaseTable(tableId) {
 
 function staffTableSubtotal(tableId) {
   const session = (staffDb.tableSessions || []).find(item => item.tableId === tableId && item.status === 'active');
-  const orders = (staffDb.orders || []).filter(order => order.tableId === tableId && order.status !== 'cancelled' && (!session || order.sessionId === session.id));
+  if (!session) return 0;
+  const orders = (staffDb.orders || []).filter(order => order.tableId === tableId && order.status !== 'cancelled' && order.closedWithTable !== true && (!order.sessionId || order.sessionId === session.id));
   return orders.reduce((sum, order) => sum + Number(order.total || 0), 0);
 }
 
 
 function activeOrdersForTable(tableId) {
   const session = (staffDb.tableSessions || []).find(item => item.tableId === tableId && item.status === 'active');
-  return (staffDb.orders || []).filter(order => order.tableId === tableId && order.status !== 'cancelled' && (!session || order.sessionId === session.id));
+  if (!session) return [];
+  return (staffDb.orders || []).filter(order => order.tableId === tableId && order.status !== 'cancelled' && order.closedWithTable !== true && (!order.sessionId || order.sessionId === session.id));
 }
 
 function billLinesForTable(tableId) {

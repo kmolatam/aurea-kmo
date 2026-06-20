@@ -601,13 +601,19 @@ function buildBillSummary(db, tableId) {
   const table = db.tables.find(t => t.id === tableId);
   if (!table) return null;
 
-  const session = activeSessionForTable(db, table.id);
-  let orders = (db.orders || []).filter(order => order.tableId === table.id && order.status !== 'cancelled');
+  const sessions = activeSessionsForTable(db, table.id);
+  const session = sessions[0] || null;
+  const sessionIds = new Set(sessions.map(item => item.id).filter(Boolean));
+  let orders = (db.orders || []).filter(order => (
+    order.tableId === table.id
+    && order.status !== 'cancelled'
+    && order.closedWithTable !== true
+  ));
 
-  if (session) {
-    orders = orders.filter(order => order.sessionId === session.id);
+  if (sessionIds.size) {
+    orders = orders.filter(order => !order.sessionId || sessionIds.has(order.sessionId));
   } else {
-    orders = orders.filter(order => ['new', 'confirmed', 'in_progress', 'ready', 'delivered'].includes(order.status));
+    orders = [];
   }
 
   const lines = [];
@@ -1221,12 +1227,14 @@ function ensureTableForExternalOrder(db, payload) {
 }
 
 function closeTableSession(db, tableId, staff = null, options = {}) {
-  const session = activeSessionForTable(db, tableId);
   const table = db.tables.find(t => t.id === tableId);
+  const sessions = activeSessionsForTable(db, tableId);
+  const session = sessions[0] || null;
   if (!session || !table) return null;
 
   const summary = buildBillSummary(db, tableId) || { lines: [], subtotal: 0, orders: [], splitAccounts: [], diners: [] };
   const closeTime = nowIso();
+  const activeSessionIds = new Set(sessions.map(item => item.id).filter(Boolean));
   let payment = null;
   if (options.markPaid !== false) {
     payment = upsertSessionPayment(db, tableId, session, {
@@ -1244,14 +1252,18 @@ function closeTableSession(db, tableId, staff = null, options = {}) {
   const activeOrderIds = new Set((summary.orders || []).map(order => order.id));
 
   for (const order of db.orders || []) {
-    if (activeOrderIds.has(order.id) && !['delivered', 'cancelled'].includes(order.status)) {
-      updateOrderStatus(order, 'delivered');
+    const belongsToClosingTable = order.tableId === tableId && order.status !== 'cancelled' && order.closedWithTable !== true;
+    const belongsToClosingSession = order.sessionId ? activeSessionIds.has(order.sessionId) : true;
+    if ((activeOrderIds.has(order.id) || (belongsToClosingTable && belongsToClosingSession))) {
+      if (!['delivered', 'cancelled'].includes(order.status)) updateOrderStatus(order, 'delivered');
       order.closedWithTable = true;
+      order.closedAt = closeTime;
+      order.updatedAt = closeTime;
     }
   }
 
   for (const alert of db.alerts || []) {
-    if ((alert.sessionId && alert.sessionId === session.id) || alert.tableId === tableId) {
+    if ((alert.sessionId && activeSessionIds.has(alert.sessionId)) || alert.tableId === tableId) {
       if (['new', 'in_progress'].includes(alert.status)) {
         alert.status = 'done';
         alert.updatedAt = closeTime;
@@ -1260,7 +1272,7 @@ function closeTableSession(db, tableId, staff = null, options = {}) {
   }
 
   for (const request of db.billRequests || []) {
-    if ((request.sessionId && request.sessionId === session.id) || request.tableId === tableId) {
+    if ((request.sessionId && activeSessionIds.has(request.sessionId)) || request.tableId === tableId) {
       if (['new', 'in_progress'].includes(request.status || 'new')) {
         request.status = options.markPaid === false ? 'closed' : 'paid';
         request.updatedAt = closeTime;
@@ -1268,14 +1280,16 @@ function closeTableSession(db, tableId, staff = null, options = {}) {
     }
   }
 
-  session.status = 'closed';
-  session.paymentStatus = options.markPaid === false ? (session.paymentStatus || 'closed') : 'paid';
-  session.paymentId = payment?.id || session.paymentId || '';
-  session.billPaidAt = session.billPaidAt || (options.markPaid === false ? '' : (payment?.approvedAt || closeTime));
-  session.closedAt = closeTime;
-  session.closedByStaffId = staff?.id || options.closedByStaffId || '';
-  session.closedByStaffName = staff?.name || options.closedByStaffName || 'Admin';
-  session.updatedAt = closeTime;
+  for (const item of sessions) {
+    item.status = 'closed';
+    item.paymentStatus = options.markPaid === false ? (item.paymentStatus || 'closed') : 'paid';
+    item.paymentId = payment?.id || item.paymentId || '';
+    item.billPaidAt = item.billPaidAt || (options.markPaid === false ? '' : (payment?.approvedAt || closeTime));
+    item.closedAt = closeTime;
+    item.closedByStaffId = staff?.id || options.closedByStaffId || '';
+    item.closedByStaffName = staff?.name || options.closedByStaffName || 'Admin';
+    item.updatedAt = closeTime;
+  }
 
   const feedbackForSession = (db.feedback || []).filter(item => item.sessionId === session.id || item.tableId === tableId);
   const closure = {
@@ -1399,7 +1413,13 @@ function findZoneStaff(db, tableId) {
 }
 
 function activeSessionForTable(db, tableId) {
-  return (db.tableSessions || []).find(session => session.tableId === tableId && session.status === 'active');
+  return activeSessionsForTable(db, tableId)[0] || null;
+}
+
+function activeSessionsForTable(db, tableId) {
+  return (db.tableSessions || [])
+    .filter(session => session.tableId === tableId && session.status === 'active')
+    .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
 }
 
 function createOrUpdateTableSession(db, table, payload = {}) {
