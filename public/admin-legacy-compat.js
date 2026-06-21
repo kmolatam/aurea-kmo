@@ -242,6 +242,245 @@
     return (title && (title.innerText || title.textContent)) || fallback || 'Mesa';
   }
 
+  function escapeText(value) {
+    return String(value == null ? '' : value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function emergencyButton(label, id, kind) {
+    var bg = kind === 'success' ? '#5fd27a' : (kind === 'danger' ? '#ec6a6a' : '#2c2c31');
+    var color = kind === 'success' || kind === 'danger' ? '#06100a' : '#f5f1e8';
+    return '<button id="' + id + '" type="button" style="border:1px solid #4a4a4f;background:' + bg + ';color:' + color + ';font-weight:900;border-radius:8px;padding:12px 14px;min-height:44px;">' + escapeText(label) + '</button>';
+  }
+
+  function closeEmergencyPanel() {
+    var panel = byId('aureaEmergencyPanel');
+    if (panel && panel.parentNode) panel.parentNode.removeChild(panel);
+  }
+
+  function showEmergencyPanel(title, tableLabel, bodyHtml, primaryLabel, onPrimary) {
+    closeEmergencyPanel();
+    var panel = document.createElement('div');
+    panel.id = 'aureaEmergencyPanel';
+    panel.style.position = 'fixed';
+    panel.style.left = '0';
+    panel.style.top = '0';
+    panel.style.right = '0';
+    panel.style.bottom = '0';
+    panel.style.zIndex = '2147483647';
+    panel.style.background = 'rgba(0,0,0,.72)';
+    panel.style.padding = '16px';
+    panel.style.overflow = 'auto';
+    panel.innerHTML =
+      '<div style="max-width:520px;margin:24px auto;background:#17171a;color:#f5f1e8;border:2px solid #c9a44c;border-radius:10px;padding:16px;font-family:Arial,sans-serif;box-shadow:0 18px 48px rgba(0,0,0,.55);">'
+      + '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px;">'
+      + '<div><div style="font-size:22px;font-weight:900;">' + escapeText(title) + '</div>'
+      + '<div style="color:#d8c58a;font-size:14px;margin-top:4px;">' + escapeText(tableLabel || 'Mesa') + '</div></div>'
+      + emergencyButton('Cerrar', 'aureaEmergencyCloseTop', '')
+      + '</div>'
+      + '<div>' + bodyHtml + '</div>'
+      + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:16px;">'
+      + emergencyButton('Cancelar', 'aureaEmergencyCancel', '')
+      + emergencyButton(primaryLabel, 'aureaEmergencyPrimary', 'success')
+      + '</div>'
+      + '</div>';
+    document.body.appendChild(panel);
+    byId('aureaEmergencyCloseTop').onclick = closeEmergencyPanel;
+    byId('aureaEmergencyCancel').onclick = closeEmergencyPanel;
+    byId('aureaEmergencyPrimary').onclick = onPrimary;
+  }
+
+  function emergencyField(label, id, type, value, extra) {
+    return '<label style="display:block;margin:12px 0 0;font-weight:800;">' + escapeText(label)
+      + '<input id="' + id + '" type="' + (type || 'text') + '" value="' + escapeText(value || '') + '" ' + (extra || '')
+      + ' style="display:block;width:100%;margin-top:6px;padding:12px;border-radius:8px;border:1px solid #505057;background:#fff;color:#111;font-size:18px;box-sizing:border-box;" />'
+      + '</label>';
+  }
+
+  function emergencySelect(label, id, optionsHtml) {
+    return '<label style="display:block;margin:12px 0 0;font-weight:800;">' + escapeText(label)
+      + '<select id="' + id + '" style="display:block;width:100%;margin-top:6px;padding:12px;border-radius:8px;border:1px solid #505057;background:#fff;color:#111;font-size:18px;box-sizing:border-box;">'
+      + optionsHtml
+      + '</select></label>';
+  }
+
+  function afterEmergencySuccess(message) {
+    visibleLog(message);
+    closeEmergencyPanel();
+    try {
+      if (window.loadData) window.loadData(false);
+      else window.setTimeout(function () { window.location.reload(); }, 600);
+    } catch (ignored) {}
+  }
+
+  function openDiscountEmergency(tableId, button) {
+    var tableLabel = tableLabelFromButton(button, 'Mesa');
+    legacyDiscountTableId = tableId;
+    showEmergencyPanel(
+      'Aplicar descuento',
+      tableLabel,
+      emergencyField('Porcentaje 0 a 100', 'emDiscountPercent', 'number', '0', 'min="0" max="100" step="0.01"')
+        + '<label id="emDiscountReasonWrap" style="display:none;margin:12px 0 0;font-weight:800;">Motivo descuento 100%'
+        + '<input id="emDiscountReason" type="text" placeholder="Cortesia, compensacion, invitacion..." style="display:block;width:100%;margin-top:6px;padding:12px;border-radius:8px;border:1px solid #505057;background:#fff;color:#111;font-size:18px;box-sizing:border-box;" />'
+        + '</label>'
+        + '<div id="emDiscountHelp" style="margin-top:12px;color:#d8c58a;font-size:14px;">El servidor calcula subtotal y total real al aplicar.</div>',
+      'Aplicar',
+      submitDiscountEmergency
+    );
+    function syncReason() {
+      var percent = toNumber(byId('emDiscountPercent') && byId('emDiscountPercent').value);
+      var wrap = byId('emDiscountReasonWrap');
+      if (wrap) wrap.style.display = percent >= 100 ? 'block' : 'none';
+    }
+    addLegacyListener('emDiscountPercent', 'input', syncReason);
+    addLegacyListener('emDiscountPercent', 'change', syncReason);
+    syncReason();
+  }
+
+  function submitDiscountEmergency() {
+    var percent = toNumber(byId('emDiscountPercent') && byId('emDiscountPercent').value);
+    var reason = byId('emDiscountReason') ? byId('emDiscountReason').value : '';
+    var payload;
+    if (percent < 0 || percent > 100) return visibleLog('Descuento invalido: usa 0 a 100');
+    if (percent >= 100 && !reason) return visibleLog('Motivo obligatorio para descuento total');
+    payload = {
+      method: percent >= 100 ? 'courtesy' : 'pending',
+      authorize: false,
+      closeTable: false,
+      discountPercent: percent,
+      discountReason: reason
+    };
+    if (percent >= 100) payload.amountPaid = 0;
+    visibleLog('enviando descuento');
+    xhrJson('POST', '/api/admin/tables/' + legacyDiscountTableId + '/payment', payload, function () {
+      afterEmergencySuccess('descuento aplicado OK');
+    }, function (error) {
+      visibleLog('error descuento: ' + error.message);
+    });
+  }
+
+  function openPaymentEmergency(tableId, button) {
+    var tableLabel = tableLabelFromButton(button, 'Mesa');
+    legacyPaymentTableId = tableId;
+    legacyPaymentTotal = 0;
+    legacyPaymentTotalKnown = false;
+    showEmergencyPanel(
+      'Ingresar pago',
+      tableLabel,
+      '<div id="emPaymentTotal" style="padding:10px;border:1px solid #5b4a20;border-radius:8px;background:#2a2414;color:#f3d987;font-weight:900;">Total: pendiente de validar</div>'
+        + emergencySelect('Metodo', 'emPaymentMethod', '<option value="cash">Efectivo</option><option value="card">Tarjeta</option><option value="transfer">Transferencia</option><option value="courtesy">Cortesia / descuento total</option>')
+        + emergencyField('Monto recibido', 'emPaymentReceived', 'number', '', 'min="0" step="0.01" placeholder="Ej. 500"')
+        + '<label style="display:flex;gap:8px;align-items:center;margin:12px 0 0;font-weight:800;"><input id="emPaymentTipFromChange" type="checkbox" /> Registrar excedente como propina</label>'
+        + emergencyField('Nota opcional', 'emPaymentNote', 'text', '', 'placeholder="voucher, autorizacion..."'),
+      'Confirmar pago',
+      submitPaymentEmergency
+    );
+    xhrJson('GET', '/api/admin/legacy-data?ts=' + new Date().getTime(), null, function (data) {
+      legacyDb = data;
+      var totals = billTotalsForTable(data, tableId);
+      var totalBox = byId('emPaymentTotal');
+      if (totals && totals.lines && totals.lines.length) {
+        legacyPaymentTotal = totals.total;
+        legacyPaymentTotalKnown = true;
+        if (totalBox) totalBox.innerHTML = 'Total: ' + money(totals.total);
+        if (byId('emPaymentReceived') && !byId('emPaymentReceived').value) byId('emPaymentReceived').value = String(totals.total || 0);
+        if (totals.total <= 0 && byId('emPaymentMethod')) byId('emPaymentMethod').value = 'courtesy';
+      } else if (totalBox) {
+        totalBox.innerHTML = 'Total: el servidor validara al confirmar';
+      }
+    }, function () {
+      var totalBox = byId('emPaymentTotal');
+      if (totalBox) totalBox.innerHTML = 'Total: el servidor validara al confirmar';
+    });
+  }
+
+  function submitPaymentEmergency() {
+    var method = byId('emPaymentMethod') ? byId('emPaymentMethod').value : 'cash';
+    var receivedRaw = byId('emPaymentReceived') ? byId('emPaymentReceived').value : '';
+    var received = toNumber(receivedRaw);
+    var useTip = byId('emPaymentTipFromChange') && byId('emPaymentTipFromChange').checked && legacyPaymentTotalKnown && legacyPaymentTotal > 0;
+    var tipAmount = useTip ? Math.max(0, received - legacyPaymentTotal) : 0;
+    if (legacyPaymentTotalKnown && legacyPaymentTotal <= 0) {
+      method = 'courtesy';
+      received = 0;
+    } else if (receivedRaw === '') {
+      return visibleLog('Captura monto recibido');
+    }
+    visibleLog('enviando pago');
+    xhrJson('POST', '/api/admin/tables/' + legacyPaymentTableId + '/payment', {
+      method: method,
+      amountPaid: received,
+      tipAmount: tipAmount,
+      closeTable: true,
+      note: byId('emPaymentNote') ? byId('emPaymentNote').value : ''
+    }, function () {
+      afterEmergencySuccess('pago registrado OK');
+    }, function (error) {
+      visibleLog('error pago: ' + error.message);
+    });
+  }
+
+  function openComplimentaryEmergency(tableId, button) {
+    var tableLabel = tableLabelFromButton(button, 'Mesa');
+    legacyComplimentaryTableId = tableId;
+    showEmergencyPanel(
+      'Enviar cortesia',
+      tableLabel,
+      emergencySelect('Producto', 'emCompItem', '<option value="">Cargando productos...</option>')
+        + emergencyField('Cantidad', 'emCompQty', 'number', '1', 'min="1" max="20" step="1"')
+        + emergencyField('Motivo opcional', 'emCompReason', 'text', '', 'placeholder="cortesia, compensacion..."')
+        + '<div id="emCompStatus" style="margin-top:12px;color:#d8c58a;font-size:14px;">Cargando productos...</div>',
+      'Enviar',
+      submitComplimentaryEmergency
+    );
+    xhrJson('GET', '/api/admin/legacy-data?ts=' + new Date().getTime(), null, function (data) {
+      var select = byId('emCompItem');
+      var status = byId('emCompStatus');
+      var items = data && data.menuItems ? data.menuItems : [];
+      if (!select) return;
+      if (!items.length) {
+        select.innerHTML = '<option value="">No hay productos</option>';
+        if (status) status.innerHTML = 'No encontre productos disponibles.';
+        return;
+      }
+      select.innerHTML = '';
+      for (var i = 0; i < items.length; i += 1) {
+        var option = document.createElement('option');
+        option.value = items[i].id;
+        option.text = (items[i].name || 'Producto') + ' - ' + money(items[i].price || 0);
+        select.appendChild(option);
+      }
+      if (status) status.innerHTML = 'Productos cargados.';
+    }, function (error) {
+      var select = byId('emCompItem');
+      var status = byId('emCompStatus');
+      if (select) select.innerHTML = '<option value="">Error cargando productos</option>';
+      if (status) status.innerHTML = 'Error: ' + escapeText(error.message);
+    });
+  }
+
+  function submitComplimentaryEmergency() {
+    var itemId = byId('emCompItem') ? byId('emCompItem').value : '';
+    var qty = Math.max(1, Math.min(20, Math.floor(toNumber(byId('emCompQty') && byId('emCompQty').value) || 1)));
+    var reason = byId('emCompReason') ? byId('emCompReason').value : '';
+    if (!itemId) return visibleLog('Selecciona producto');
+    visibleLog('enviando cortesia');
+    xhrJson('POST', '/api/admin/tables/' + legacyComplimentaryTableId + '/complimentary-item', {
+      itemId: itemId,
+      qty: qty,
+      reason: reason,
+      idempotency_key: 'em-comp-' + legacyComplimentaryTableId + '-' + itemId + '-' + new Date().getTime()
+    }, function () {
+      afterEmergencySuccess('cortesia enviada OK');
+    }, function (error) {
+      visibleLog('error cortesia: ' + error.message);
+    });
+  }
+
   function tableById(db, tableId) {
     var tables = db && db.tables ? db.tables : [];
     for (var i = 0; i < tables.length; i += 1) {
@@ -663,9 +902,9 @@
     var tableId = button && button.getAttribute ? button.getAttribute('data-table-id') : '';
     var actions = window.AureaAdminActions || {};
     log('action:' + action, tableId || '');
-    if (action === 'open-payment') return openPaymentLegacy(tableId, button);
-    if (action === 'open-discount') return openDiscountLegacy(tableId, button);
-    if (action === 'open-complimentary') return openComplimentaryLegacy(tableId, button);
+    if (action === 'open-payment') return openPaymentEmergency(tableId, button);
+    if (action === 'open-discount') return openDiscountEmergency(tableId, button);
+    if (action === 'open-complimentary') return openComplimentaryEmergency(tableId, button);
     if (action === 'submit-payment') return submitPaymentLegacy();
     if (action === 'submit-discount') return submitDiscountLegacy();
     if (action === 'submit-complimentary') return submitComplimentaryLegacy();
