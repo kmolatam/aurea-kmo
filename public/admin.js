@@ -819,8 +819,35 @@ function financeSummaryForDate(date) {
     acc.discounts += Number(payment.discountAmount || 0);
     return acc;
   }, { cash: 0, card: 0, transfer: 0, other: 0, total: 0, tips: 0, discounts: 0 });
+  const staffMap = new Map();
+  payments.forEach(payment => {
+    const staff = paymentStaffForProduction(payment);
+    const key = staff.id || staff.name || 'Sin mesero';
+    if (!staffMap.has(key)) staffMap.set(key, { staffId: staff.id, staffName: staff.name || 'Sin mesero', sales: 0, tips: 0, tickets: 0, tableIds: new Set() });
+    const row = staffMap.get(key);
+    row.sales += Number(payment.totalDue || payment.totalPaid || 0);
+    row.tips += Number(payment.tipAmount || payment.propina || 0);
+    row.tickets += 1;
+    if (payment.tableId) row.tableIds.add(payment.tableId);
+  });
+  const salesByStaff = Array.from(staffMap.values()).map(row => ({
+    staffId: row.staffId,
+    staffName: row.staffName,
+    sales: row.sales,
+    tips: row.tips,
+    tickets: row.tickets,
+    ticketAverage: row.tickets ? row.sales / row.tickets : 0,
+    tablesServed: row.tableIds.size
+  }));
+  const tipsByStaff = salesByStaff.map(row => ({
+    staffId: row.staffId,
+    staffName: row.staffName,
+    tips: row.tips,
+    tickets: row.tickets,
+    tablesServed: row.tablesServed
+  }));
   const expenseTotal = expenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
-  return { payments, pendingPayments, expenses, dailyClose, sales, expenseTotal, netCashExpected: sales.cash - expenseTotal };
+  return { payments, pendingPayments, expenses, dailyClose, sales, salesByStaff, tipsByStaff, expenseTotal, netCashExpected: sales.cash - expenseTotal };
 }
 
 function renderFinance() {
@@ -835,6 +862,8 @@ function renderFinance() {
   document.getElementById('financeCash').textContent = money(summary.sales.cash);
   document.getElementById('financeCard').textContent = money(summary.sales.card);
   document.getElementById('financeTransfer').textContent = money(summary.sales.transfer);
+  const tipsEl = document.getElementById('financeTips');
+  if (tipsEl) tipsEl.textContent = money(summary.sales.tips);
   document.getElementById('pendingPaymentsPill').textContent = `${summary.pendingPayments.length} pendientes`;
   document.getElementById('expenseTotalPill').textContent = money(summary.expenseTotal);
 
@@ -898,13 +927,16 @@ function renderDailyClosePreview(summary) {
   const counted = Number(document.getElementById('countedCash')?.value || summary.dailyClose?.countedCash || 0);
   const expected = opening + summary.netCashExpected;
   const diff = counted - expected;
+  const tipRows = (summary.tipsByStaff || []).filter(row => Number(row.tips || 0) > 0);
   box.innerHTML = `
     <div><span>Fondo inicial</span><strong>${money(opening)}</strong></div>
     <div><span>Efectivo ventas</span><strong>${money(summary.sales.cash)}</strong></div>
+    <div><span>Total propinas</span><strong>${money(summary.sales.tips)}</strong></div>
     <div><span>Egresos</span><strong>${money(summary.expenseTotal)}</strong></div>
     <div><span>Efectivo esperado</span><strong>${money(expected)}</strong></div>
     <div><span>Efectivo contado</span><strong>${money(counted)}</strong></div>
     <div><span>Diferencia</span><strong>${money(diff)}</strong></div>
+    ${tipRows.length ? `<div><span>Propinas por mesero</span><strong>${tipRows.map(row => `${escapeHtml(row.staffName || 'Sin mesero')}: ${money(row.tips)}`).join(' · ')}</strong></div>` : ''}
   `;
 }
 
@@ -939,7 +971,8 @@ function dailyCloseText() {
   const counted = Number(document.getElementById('countedCash')?.value || summary.dailyClose?.countedCash || 0);
   const expected = opening + summary.netCashExpected;
   const diff = counted - expected;
-  return [
+  const staffRows = (summary.salesByStaff || []).filter(row => Number(row.sales || 0) > 0 || Number(row.tips || 0) > 0);
+  const lines = [
     `CORTE DIARIO · ${db.restaurant?.name || 'AUREA'}`,
     `Fecha: ${date}`,
     ``,
@@ -949,7 +982,18 @@ function dailyCloseText() {
     `Transferencia: ${money(summary.sales.transfer)}`,
     `Otro: ${money(summary.sales.other)}`,
     `Total vendido: ${money(summary.sales.total)}`,
+    `Total propinas: ${money(summary.sales.tips)}`,
+    `Descuentos: ${money(summary.sales.discounts)}`,
     ``,
+  ];
+  if (staffRows.length) {
+    lines.push('Ventas y propinas por mesero:');
+    staffRows.forEach(row => {
+      lines.push(`${row.staffName || 'Sin mesero'}: venta ${money(row.sales)} · propina ${money(row.tips)} · ticket prom. ${money(row.ticketAverage)} · mesas ${row.tablesServed || 0}`);
+    });
+    lines.push('');
+  }
+  lines.push(
     `Egresos: ${money(summary.expenseTotal)}`,
     ``,
     `Caja:`,
@@ -960,7 +1004,8 @@ function dailyCloseText() {
     ``,
     `Pagos autorizados: ${summary.payments.length}`,
     `Pagos pendientes: ${summary.pendingPayments.length}`
-  ].join('\n');
+  );
+  return lines.join('\n');
 }
 
 async function copyDailyCloseSummary() {
@@ -1104,6 +1149,10 @@ function renderActiveSessions() {
       const payment = activePaymentForTable(session.tableId, session);
       const discountPercent = Number(payment?.discountPercent || 0);
       const discountPill = discountPercent > 0 ? `<span class="pill">Descuento ${escapeHtml(discountPercent)}%</span>` : '';
+      const assignButtons = (db.staff || [])
+        .filter(s => s.active !== false && s.id !== session.assignedStaffId)
+        .map(member => `<button class="btn small secondary" onclick="adminAssignTable('${session.tableId}', '${member.id}')">${session.assignedStaffId ? 'Reasignar a' : 'Asignar a'} ${escapeHtml(member.name)}</button>`)
+        .join('\n');
       return `
     <div class="item">
       <div class="item-main">
@@ -1112,12 +1161,13 @@ function renderActiveSessions() {
         <div style="margin-top:8px;"><span class="pill">${session.assignedStaffName ? `Atiende ${escapeHtml(session.assignedStaffName)}` : 'Sin asignar'}</span>${discountPill}</div>
       </div>
       <div class="inline-actions end">
-        ${session.assignedStaffName ? '' : (db.staff || []).filter(s => s.active !== false).map(member => `<button class="btn small secondary" onclick="adminAssignTable('${session.tableId}', '${member.id}')">Asignar a ${escapeHtml(member.name)}</button>`).join('\n')}
+        ${assignButtons}
+        ${session.assignedStaffName ? `<button class="btn small ghost" onclick="adminReleaseTable('${session.tableId}')">Liberar mesa</button>` : ''}
         ${session.paymentStatus === 'paid' ? '<span class="pill">Pagada</span>' : ''}
-        <button class="btn small secondary" onclick="applyAdminDiscountForTable('${session.tableId}')">Descuento %</button>
+        <button class="btn small secondary" data-legacy-action="open-discount" data-table-id="${escapeHtml(session.tableId)}" onclick="applyAdminDiscountForTable('${session.tableId}')">Descuento %</button>
         <button class="btn small ghost" onclick="openAdminComplimentaryModal('${session.tableId}')">Enviar cortesía</button>
         <button class="btn small secondary" onclick="printAdminBillTicketForTable('${session.tableId}')">Imprimir ticket</button>
-        <button class="btn small success" onclick="openAdminPaymentModal('${session.tableId}')">Ingresar pago</button>
+        <button class="btn small success" data-legacy-action="open-payment" data-table-id="${escapeHtml(session.tableId)}" onclick="openAdminPaymentModal('${session.tableId}')">Ingresar pago</button>
       </div>
     </div>
       `;
@@ -1129,7 +1179,7 @@ function productionTipPaymentsToday() {
   const date = todayBusinessDate();
   return (db.payments || []).filter(payment => (
     payment.status === 'approved'
-    && Number(payment.tipAmount || 0) > 0
+    && Number(payment.tipAmount || payment.propina || 0) > 0
     && (payment.businessDate || itemBusinessDate(payment.approvedAt || payment.createdAt)) === date
   ));
 }
@@ -1138,8 +1188,8 @@ function paymentStaffForProduction(payment) {
   const session = (db.tableSessions || []).find(item => item.id === payment.sessionId);
   const closure = (db.tableClosures || []).find(item => item.paymentId === payment.id || item.sessionId === payment.sessionId);
   return {
-    id: closure?.assignedStaffId || session?.assignedStaffId || '',
-    name: closure?.assignedStaffName || session?.assignedStaffName || ''
+    id: payment.assignedStaffId || payment.staffId || payment.mesero_id || closure?.assignedStaffId || session?.assignedStaffId || '',
+    name: payment.assignedStaffName || payment.staffName || payment.nombre_mesero || closure?.assignedStaffName || session?.assignedStaffName || ''
   };
 }
 
@@ -1148,12 +1198,12 @@ function productionTipsForStaff(stat) {
     const staff = paymentStaffForProduction(payment);
     const sameId = stat.staffId && staff.id && stat.staffId === staff.id;
     const sameName = stat.name && staff.name && String(stat.name).toLowerCase() === String(staff.name).toLowerCase();
-    return sameId || sameName ? sum + Number(payment.tipAmount || 0) : sum;
+    return sameId || sameName ? sum + Number(payment.tipAmount || payment.propina || 0) : sum;
   }, 0);
 }
 
 function productionTipsTotalToday() {
-  return productionTipPaymentsToday().reduce((sum, payment) => sum + Number(payment.tipAmount || 0), 0);
+  return productionTipPaymentsToday().reduce((sum, payment) => sum + Number(payment.tipAmount || payment.propina || 0), 0);
 }
 
 function renderStaffStats() {
@@ -1174,7 +1224,12 @@ function renderStaffStats() {
     el.innerHTML = `${tipsSummary}<div class="item"><div>No hay estadisticas todavia.</div></div>`;
     return;
   }
-  el.innerHTML = tipsSummary + stats.map(stat => `
+  el.innerHTML = tipsSummary + stats.map(stat => {
+    const tipTotal = Number(stat.tipTotal !== undefined ? stat.tipTotal : productionTipsForStaff(stat));
+    const ticketAverage = Number(stat.ticketAverage || 0);
+    const tablesServed = Number(stat.tablesServed || 0);
+    const paymentCount = Number(stat.paymentCount || 0);
+    return `
     <div class="item staff-stat-card">
       <div class="item-main">
         <div class="item-title">${escapeHtml(stat.name)} · ${escapeHtml(stat.role || 'Mesero')}</div>
@@ -1184,14 +1239,18 @@ function renderStaffStats() {
           <span><strong>${stat.deliveredOrders}</strong> entregadas</span>
           <span><strong>${stat.vipCaptured}</strong> Clientes captados</span>
           <span><strong>${money(stat.totalSales)}</strong> venta registrada</span>
-          <span><strong>${money(productionTipsForStaff(stat))}</strong> propinas hoy</span>
+          <span><strong>${money(tipTotal)}</strong> propinas hoy</span>
+          <span><strong>${money(ticketAverage)}</strong> ticket promedio</span>
+          <span><strong>${tablesServed}</strong> mesas cerradas</span>
+          <span><strong>${paymentCount}</strong> pagos</span>
           <span>Tomar mesa: <strong>${metric(stat.avgTakeMinutes, ' min')}</strong></span>
           <span>Confirmar: <strong>${metric(stat.avgConfirmMinutes, ' min')}</strong></span>
           <span>Entregar: <strong>${metric(stat.avgDeliveryMinutes, ' min')}</strong></span>
         </div>
       </div>
     </div>
-  `).join('\n');
+  `;
+  }).join('\n');
 }
 
 function renderStaffZoneOptions() {
@@ -1213,6 +1272,17 @@ async function adminAssignTable(tableId, staffId) {
   try {
     await api(`/api/admin/tables/${tableId}/take/${staffId}`, { method: 'POST' });
     toast('Mesa asignada');
+    await loadData(false);
+  } catch (error) {
+    toast(error.message);
+  }
+}
+
+async function adminReleaseTable(tableId) {
+  if (!confirm('Liberar mesa desde admin? Se cerrara la sesion activa sin registrar pago nuevo.')) return;
+  try {
+    await api(`/api/admin/tables/${tableId}/release`, { method: 'POST' });
+    toast('Mesa liberada');
     await loadData(false);
   } catch (error) {
     toast(error.message);
@@ -2321,8 +2391,8 @@ document.getElementById('expenseForm')?.addEventListener('submit', async event =
   }
 });
 
-document.getElementById('dailyCloseForm')?.addEventListener('submit', async event => {
-  event.preventDefault();
+async function submitDailyClose(event) {
+  if (event) event.preventDefault();
   try {
     await api('/api/admin/daily-close', {
       method: 'POST',
@@ -2338,7 +2408,9 @@ document.getElementById('dailyCloseForm')?.addEventListener('submit', async even
   } catch (error) {
     toast(error.message);
   }
-});
+}
+
+document.getElementById('dailyCloseForm')?.addEventListener('submit', submitDailyClose);
 
 ['financeDate', 'openingCash', 'countedCash'].forEach(id => {
   document.getElementById(id)?.addEventListener('input', () => renderFinance());

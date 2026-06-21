@@ -286,6 +286,10 @@ function ensureDbShape(db) {
     session.paymentId = session.paymentId || '';
     session.closedByStaffId = session.closedByStaffId || '';
     session.closedByStaffName = session.closedByStaffName || '';
+    session.assignedAt = session.assignedAt || session.takenAt || '';
+    session.mesero_id = session.assignedStaffId || '';
+    session.nombre_mesero = session.assignedStaffName || '';
+    session.fecha_hora_asignacion = session.assignedAt || '';
   });
   db.payments.forEach(payment => {
     payment.status = payment.status || 'pending_admin';
@@ -296,6 +300,19 @@ function ensureDbShape(db) {
     payment.discountAudit = payment.discountAudit || null;
     payment.tipAmount = roundMoney(payment.tipAmount || 0);
     payment.totalDue = roundMoney(payment.totalDue || payment.subtotal - payment.discountAmount + payment.tipAmount);
+    const paymentSession = payment.sessionId ? db.tableSessions.find(session => session.id === payment.sessionId) : null;
+    const paymentClosure = db.tableClosures.find(closure => closure.paymentId === payment.id || (payment.sessionId && closure.sessionId === payment.sessionId));
+    const paymentStaffId = payment.assignedStaffId || payment.staffId || payment.mesero_id || paymentClosure?.assignedStaffId || paymentSession?.assignedStaffId || '';
+    const paymentStaffName = payment.assignedStaffName || payment.staffName || payment.nombre_mesero || paymentClosure?.assignedStaffName || paymentSession?.assignedStaffName || '';
+    payment.assignedStaffId = paymentStaffId;
+    payment.assignedStaffName = paymentStaffName;
+    payment.staffId = paymentStaffId;
+    payment.staffName = paymentStaffName;
+    payment.mesero_id = paymentStaffId;
+    payment.nombre_mesero = paymentStaffName;
+    payment.descuento = payment.discountAmount;
+    payment.propina = payment.tipAmount;
+    payment.total = payment.totalDue;
     payment.cashAmount = roundMoney(payment.cashAmount || 0);
     payment.cardAmount = roundMoney(payment.cardAmount || 0);
     payment.transferAmount = roundMoney(payment.transferAmount || 0);
@@ -842,17 +859,28 @@ function upsertSessionPayment(db, tableId, session, payload = {}, actor = {}) {
   const discountChanged = roundMoney(Number(payment.discountPercent || 0)) !== normalized.discountPercent
     || roundMoney(Number(payment.discountAmount || 0)) !== normalized.discountAmount
     || (normalized.discountReason && normalized.discountReason !== payment.discountReason);
+  const responsibleStaffId = session?.assignedStaffId || payment.assignedStaffId || payment.staffId || payment.mesero_id || actor.staffId || '';
+  const responsibleStaffName = session?.assignedStaffName || payment.assignedStaffName || payment.staffName || payment.nombre_mesero || actor.staffName || '';
 
   Object.assign(payment, {
     tableId,
     tableName: session?.tableName || payment.tableName || '',
     sessionId: session?.id || payment.sessionId || '',
+    assignedStaffId: responsibleStaffId,
+    assignedStaffName: responsibleStaffName,
+    staffId: responsibleStaffId,
+    staffName: responsibleStaffName,
+    mesero_id: responsibleStaffId,
+    nombre_mesero: responsibleStaffName,
     subtotal: normalized.subtotal,
     discountPercent: normalized.discountPercent,
     discountAmount: normalized.discountAmount,
+    descuento: normalized.discountAmount,
     discountReason: normalized.discountReason || payment.discountReason || '',
     tipAmount: normalized.tipAmount,
+    propina: normalized.tipAmount,
     totalDue: normalized.totalDue,
+    total: normalized.totalDue,
     method: normalized.method,
     methodLabel: normalized.methodLabel,
     cashAmount: normalized.cashAmount,
@@ -898,6 +926,15 @@ function upsertSessionPayment(db, tableId, session, payload = {}, actor = {}) {
   return payment;
 }
 
+function paymentStaffIdentity(db, payment) {
+  const session = payment?.sessionId ? (db.tableSessions || []).find(item => item.id === payment.sessionId) : null;
+  const closure = (db.tableClosures || []).find(item => item.paymentId === payment?.id || (payment?.sessionId && item.sessionId === payment.sessionId));
+  return {
+    id: payment?.assignedStaffId || payment?.staffId || payment?.mesero_id || closure?.assignedStaffId || session?.assignedStaffId || '',
+    name: payment?.assignedStaffName || payment?.staffName || payment?.nombre_mesero || closure?.assignedStaffName || session?.assignedStaffName || 'Sin mesero'
+  };
+}
+
 function computeDailyFinanceSummary(db, date = businessDate()) {
   const payments = (db.payments || []).filter(payment => payment.status === 'approved' && (payment.businessDate || businessDate(payment.approvedAt || payment.createdAt)) === date);
   const pendingPayments = (db.payments || []).filter(payment => ['pending_admin', 'pending_approval'].includes(payment.status || '') && (payment.businessDate || businessDate(payment.createdAt)) === date);
@@ -915,6 +952,37 @@ function computeDailyFinanceSummary(db, date = businessDate()) {
   }, { cash: 0, card: 0, transfer: 0, other: 0, total: 0, tips: 0, discounts: 0 });
 
   Object.keys(salesByMethod).forEach(key => { salesByMethod[key] = roundMoney(salesByMethod[key]); });
+  const staffSalesMap = new Map();
+  for (const payment of payments) {
+    const staff = paymentStaffIdentity(db, payment);
+    const key = staff.id || staff.name || 'Sin mesero';
+    if (!staffSalesMap.has(key)) {
+      staffSalesMap.set(key, { staffId: staff.id, staffName: staff.name, sales: 0, tips: 0, discounts: 0, tickets: 0, tableIds: new Set() });
+    }
+    const row = staffSalesMap.get(key);
+    row.sales += Number(payment.totalDue || payment.totalPaid || 0);
+    row.tips += Number(payment.tipAmount || payment.propina || 0);
+    row.discounts += Number(payment.discountAmount || payment.descuento || 0);
+    row.tickets += 1;
+    if (payment.tableId) row.tableIds.add(payment.tableId);
+  }
+  const salesByStaff = Array.from(staffSalesMap.values()).map(row => ({
+    staffId: row.staffId,
+    staffName: row.staffName || 'Sin mesero',
+    sales: roundMoney(row.sales),
+    tips: roundMoney(row.tips),
+    discounts: roundMoney(row.discounts),
+    ticketAverage: row.tickets ? roundMoney(row.sales / row.tickets) : 0,
+    tickets: row.tickets,
+    tablesServed: row.tableIds.size
+  }));
+  const tipsByStaff = salesByStaff.map(row => ({
+    staffId: row.staffId,
+    staffName: row.staffName,
+    tips: row.tips,
+    tablesServed: row.tablesServed,
+    tickets: row.tickets
+  }));
 
   const expenseTotal = roundMoney(expenses.reduce((sum, item) => sum + Number(item.amount || 0), 0));
   const ticketAverage = payments.length ? roundMoney(salesByMethod.total / payments.length) : 0;
@@ -924,6 +992,8 @@ function computeDailyFinanceSummary(db, date = businessDate()) {
     pendingPayments,
     expenses,
     closures,
+    salesByStaff,
+    tipsByStaff,
     salesByMethod,
     expenseTotal,
     netCashExpected: roundMoney(salesByMethod.cash - expenseTotal),
@@ -1396,6 +1466,8 @@ function closeTableSession(db, tableId, staff = null, options = {}) {
     customerPhone: session.customerPhone || '',
     assignedStaffId: session.assignedStaffId || '',
     assignedStaffName: session.assignedStaffName || '',
+    mesero_id: session.assignedStaffId || '',
+    nombre_mesero: session.assignedStaffName || '',
     closedByStaffId: session.closedByStaffId || '',
     closedByStaffName: session.closedByStaffName || '',
     openedAt: session.createdAt || '',
@@ -1410,8 +1482,11 @@ function closeTableSession(db, tableId, staff = null, options = {}) {
     paymentTotalDue: payment?.totalDue || 0,
     paymentTotalPaid: payment?.totalPaid || 0,
     tipAmount: payment?.tipAmount || 0,
+    propina: payment?.tipAmount || 0,
     discountPercent: payment?.discountPercent || 0,
     discountAmount: payment?.discountAmount || 0,
+    descuento: payment?.discountAmount || 0,
+    total: payment?.totalDue || 0,
     discountReason: payment?.discountReason || '',
     discountAudit: payment?.discountAudit || null,
     orderCount: (summary.orders || []).length,
@@ -1536,6 +1611,10 @@ function createOrUpdateTableSession(db, table, payload = {}) {
       status: 'active',
       assignedStaffId: '',
       assignedStaffName: '',
+      assignedAt: '',
+      mesero_id: '',
+      nombre_mesero: '',
+      fecha_hora_asignacion: '',
       assignmentMode: db.restaurant.assignmentMode || 'free',
       source: cleanString(payload.source || 'table_visit', 40),
       createdAt: nowIso(),
@@ -1561,6 +1640,10 @@ function createOrUpdateTableSession(db, table, payload = {}) {
       session.assignedStaffId = zoneStaff.id;
       session.assignedStaffName = zoneStaff.name;
       session.takenAt = session.takenAt || nowIso();
+      session.assignedAt = session.assignedAt || session.takenAt;
+      session.mesero_id = session.assignedStaffId;
+      session.nombre_mesero = session.assignedStaffName;
+      session.fecha_hora_asignacion = session.assignedAt;
       session.assignmentMode = 'zone';
     }
   }
@@ -1633,11 +1716,24 @@ function computeStaffStats(db) {
   const activeAlerts = (db.alerts || []).filter(alert => ['new', 'in_progress'].includes(alert.status));
   const orders = db.orders || [];
   const contacts = db.contacts || [];
+  const today = businessDate();
+  const approvedPayments = (db.payments || []).filter(payment => (
+    payment.status === 'approved'
+    && (payment.businessDate || businessDate(payment.approvedAt || payment.createdAt)) === today
+  ));
+  const todayClosures = (db.tableClosures || []).filter(item => businessDate(item.closedAt || item.createdAt) === today);
 
   return (db.staff || []).map(member => {
     const memberOrders = orders.filter(order => order.assignedStaffId === member.id);
     const activeOrders = memberOrders.filter(order => ['new', 'confirmed', 'in_progress', 'ready'].includes(order.status));
     const deliveredOrders = memberOrders.filter(order => order.status === 'delivered');
+    const memberPayments = approvedPayments.filter(payment => {
+      const staff = paymentStaffIdentity(db, payment);
+      return staff.id === member.id || (!staff.id && staff.name && String(staff.name).toLowerCase() === String(member.name || '').toLowerCase());
+    });
+    const memberClosures = todayClosures.filter(closure => closure.assignedStaffId === member.id);
+    const paymentSales = roundMoney(memberPayments.reduce((sum, payment) => sum + Number(payment.totalDue || payment.totalPaid || 0), 0));
+    const tipTotal = roundMoney(memberPayments.reduce((sum, payment) => sum + Number(payment.tipAmount || payment.propina || 0), 0));
     const responseTimes = (db.tableSessions || [])
       .filter(session => session.assignedStaffId === member.id && session.takenAt)
       .map(session => minutesBetween(session.createdAt, session.takenAt))
@@ -1661,7 +1757,12 @@ function computeStaffStats(db) {
       activeOrders: activeOrders.length,
       deliveredOrders: deliveredOrders.length,
       vipCaptured,
-      totalSales: memberOrders.reduce((sum, order) => sum + Number(order.total || 0), 0),
+      orderSales: roundMoney(memberOrders.reduce((sum, order) => sum + Number(order.total || 0), 0)),
+      totalSales: paymentSales,
+      tipTotal,
+      ticketAverage: memberPayments.length ? roundMoney(paymentSales / memberPayments.length) : 0,
+      tablesServed: new Set(memberClosures.map(closure => closure.tableId).filter(Boolean)).size,
+      paymentCount: memberPayments.length,
       avgTakeMinutes: average(responseTimes),
       avgConfirmMinutes: average(confirmTimes),
       avgDeliveryMinutes: average(deliveryTimes)
@@ -1916,12 +2017,18 @@ app.patch('/api/staff/alerts/:id', requireStaff, (req, res) => {
   const db = readDb();
   const alert = db.alerts.find(a => a.id === req.params.id);
   if (!alert) return res.status(404).json({ ok: false, message: 'Alerta no encontrada' });
+  const session = activeSessionForTable(db, alert.tableId);
+  if (session?.assignedStaffId && session.assignedStaffId !== req.session.staffId) {
+    return res.status(403).json({ ok: false, message: `Mesa atendida por ${session.assignedStaffName || 'otro mesero'}` });
+  }
+  if (alert.assignedStaffId && alert.assignedStaffId !== req.session.staffId) {
+    return res.status(403).json({ ok: false, message: `Mesa atendida por ${alert.assignedStaffName || 'otro mesero'}` });
+  }
   alert.status = ['new', 'in_progress', 'done', 'cancelled'].includes(req.body.status) ? req.body.status : alert.status;
   const staff = db.staff.find(member => member.id === req.session.staffId);
   if (staff && !alert.assignedStaffId && ['in_progress', 'done'].includes(alert.status)) {
     alert.assignedStaffId = staff.id;
     alert.assignedStaffName = staff.name;
-    const session = activeSessionForTable(db, alert.tableId);
     if (session && !session.assignedStaffId) {
       session.assignedStaffId = staff.id;
       session.assignedStaffName = staff.name;
@@ -1940,10 +2047,16 @@ app.patch('/api/staff/orders/:id', requireStaff, (req, res) => {
   const order = db.orders.find(o => o.id === req.params.id);
   if (!order) return res.status(404).json({ ok: false, message: 'Pedido no encontrado' });
   const staff = db.staff.find(member => member.id === req.session.staffId);
+  const session = activeSessionForTable(db, order.tableId);
+  if (session?.assignedStaffId && session.assignedStaffId !== req.session.staffId) {
+    return res.status(403).json({ ok: false, message: `Mesa atendida por ${session.assignedStaffName || 'otro mesero'}` });
+  }
+  if (order.assignedStaffId && order.assignedStaffId !== req.session.staffId) {
+    return res.status(403).json({ ok: false, message: `Mesa atendida por ${order.assignedStaffName || 'otro mesero'}` });
+  }
   if (staff && !order.assignedStaffId) {
     order.assignedStaffId = staff.id;
     order.assignedStaffName = staff.name;
-    const session = activeSessionForTable(db, order.tableId);
     if (session && !session.assignedStaffId) {
       session.assignedStaffId = staff.id;
       session.assignedStaffName = staff.name;
@@ -1992,18 +2105,23 @@ function createManualOrderForTable(db, table, payload = {}, actor = {}) {
   const staff = actor.staff || null;
   if (staff) {
     if (session.assignedStaffId && session.assignedStaffId !== staff.id && actor.enforceAssignment !== false) {
-      const err = new Error(`Esta mesa está asignada a ${session.assignedStaffName || 'otro mesero'}`);
+      const err = new Error(`Mesa atendida por ${session.assignedStaffName || 'otro mesero'}`);
       err.status = 403;
       throw err;
     }
     session.assignedStaffId = staff.id;
     session.assignedStaffName = staff.name;
     session.takenAt = session.takenAt || nowIso();
+    session.assignedAt = session.assignedAt || session.takenAt;
   } else if (actor.adminName && !session.assignedStaffId) {
     session.assignedStaffId = '';
     session.assignedStaffName = actor.adminName;
+    session.assignedAt = session.assignedAt || nowIso();
   }
 
+  session.mesero_id = session.assignedStaffId || '';
+  session.nombre_mesero = session.assignedStaffName || '';
+  session.fecha_hora_asignacion = session.assignedAt || '';
   session.assignmentMode = db.restaurant.assignmentMode || 'free';
   session.updatedAt = nowIso();
   assignToSessionRelatedItems(db, session);
@@ -2063,6 +2181,9 @@ function createManualOrderForTable(db, table, payload = {}, actor = {}) {
     sessionId: session.id,
     assignedStaffId: session.assignedStaffId || '',
     assignedStaffName: session.assignedStaffName || actor.adminName || '',
+    mesero_id: session.assignedStaffId || '',
+    nombre_mesero: session.assignedStaffName || actor.adminName || '',
+    fecha_hora_asignacion: session.assignedAt || session.takenAt || '',
     source: payload.source || 'manual',
     idempotencyKey,
     fingerprint,
@@ -3357,6 +3478,8 @@ app.post('/api/admin/daily-close', requireLogin, (req, res) => {
     notes: cleanString(req.body.notes || '', 500),
     summary: {
       salesByMethod: summary.salesByMethod,
+      salesByStaff: summary.salesByStaff,
+      tipsByStaff: summary.tipsByStaff,
       expenseTotal: summary.expenseTotal,
       netCashExpected: summary.netCashExpected,
       ticketAverage: summary.ticketAverage,
@@ -3382,11 +3505,27 @@ app.post('/api/admin/tables/:tableId/take/:staffId', requireLogin, (req, res) =>
   const session = createOrUpdateTableSession(db, table, { source: 'admin_assign' });
   session.assignedStaffId = staff.id;
   session.assignedStaffName = staff.name;
-  session.takenAt = session.takenAt || nowIso();
+  const assignedAt = nowIso();
+  session.takenAt = session.takenAt || assignedAt;
+  session.assignedAt = assignedAt;
+  session.mesero_id = staff.id;
+  session.nombre_mesero = staff.name;
+  session.fecha_hora_asignacion = assignedAt;
   session.updatedAt = nowIso();
   assignToSessionRelatedItems(db, session);
   writeDb(db);
   res.json({ ok: true, session });
+});
+
+app.post('/api/admin/tables/:tableId/release', requireLogin, (req, res) => {
+  const db = readDb();
+  const result = closeTableSession(db, req.params.tableId, null, {
+    markPaid: false,
+    closedByStaffName: req.session.adminUser || 'Admin'
+  });
+  if (!result) return res.status(404).json({ ok: false, message: 'No hay sesión activa en esta mesa' });
+  writeDb(db);
+  res.json({ ok: true, ...result });
 });
 
 app.delete('/api/admin/contacts/:id', requireLogin, (req, res) => {

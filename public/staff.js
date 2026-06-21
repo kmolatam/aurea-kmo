@@ -546,6 +546,14 @@ function categoryName(categoryId) {
 }
 
 
+function activeSessionForStaffTable(tableId) {
+  return (staffDb?.tableSessions || []).find(item => item.tableId === tableId && item.status === 'active') || null;
+}
+
+function sessionBelongsToOtherStaff(session) {
+  return Boolean(session?.assignedStaffId && staffDb?.staff?.id && session.assignedStaffId !== staffDb.staff.id);
+}
+
 function renderPosQuickPanel() {
   const panel = document.getElementById('posQuickPanel');
   const select = document.getElementById('staffPosTableSelect');
@@ -559,9 +567,11 @@ function renderPosQuickPanel() {
   const tables = staffDb?.tables || [];
   select.innerHTML = tables.length
     ? tables.map(table => {
-        const session = (staffDb.tableSessions || []).find(item => item.tableId === table.id && item.status === 'active');
+        const session = activeSessionForStaffTable(table.id);
+        const locked = sessionBelongsToOtherStaff(session);
         const label = `${table.name}${session ? ' · activa' : ''}`;
-        return `<option value="${escapeHtml(table.id)}">${escapeHtml(label)}</option>`;
+        const optionLabel = locked ? `${table.name} · atendida por ${session.assignedStaffName || 'otro mesero'}` : label;
+        return `<option value="${escapeHtml(table.id)}" ${locked ? 'disabled' : ''}>${escapeHtml(optionLabel)}</option>`;
       }).join('')
     : '<option value="">No hay mesas configuradas</option>';
   if (previous && tables.some(table => table.id === previous)) select.value = previous;
@@ -570,6 +580,8 @@ function renderPosQuickPanel() {
 function openPosManualOrder() {
   const tableId = selectedPosTableId();
   if (!tableId) return toast('Primero configura mesas en Admin');
+  const session = activeSessionForStaffTable(tableId);
+  if (sessionBelongsToOtherStaff(session)) return toast(`Mesa atendida por ${session.assignedStaffName || 'otro mesero'}`);
   openManualOrderModal(tableId);
 }
 
@@ -586,14 +598,20 @@ function fillManualTableSelect(selectedId = '') {
   if (!select) return;
   const tables = staffDb?.tables || [];
   select.innerHTML = tables.length
-    ? tables.map(table => `<option value="${escapeHtml(table.id)}" ${table.id === selectedId ? 'selected' : ''}>${escapeHtml(table.name)}</option>`).join('')
+    ? tables.map(table => {
+        const session = activeSessionForStaffTable(table.id);
+        const locked = sessionBelongsToOtherStaff(session);
+        const label = locked ? `${table.name} · atendida por ${session.assignedStaffName || 'otro mesero'}` : table.name;
+        return `<option value="${escapeHtml(table.id)}" ${table.id === selectedId ? 'selected' : ''} ${locked ? 'disabled' : ''}>${escapeHtml(label)}</option>`;
+      }).join('')
     : '<option value="">No hay mesas configuradas</option>';
 }
 
 function openManualOrderModal(preselectedTableId = '') {
   resetStaffOrderDraft();
   currentOrderMode = 'manual';
-  const firstTable = (staffDb?.tables || [])[0];
+  const tables = staffDb?.tables || [];
+  const firstTable = tables.find(table => !sessionBelongsToOtherStaff(activeSessionForStaffTable(table.id))) || tables[0];
   currentStaffOrderTableId = preselectedTableId || firstTable?.id || null;
   fillManualTableSelect(currentStaffOrderTableId);
   const manualFields = document.getElementById('manualOrderFields');
@@ -608,12 +626,13 @@ function openManualOrderModal(preselectedTableId = '') {
 
 
 function openStaffOrderModal(tableId) {
+  const session = activeSessionForStaffTable(tableId);
+  if (sessionBelongsToOtherStaff(session)) return toast(`Mesa atendida por ${session.assignedStaffName || 'otro mesero'}`);
   resetStaffOrderDraft();
   currentOrderMode = 'session';
   currentStaffOrderTableId = tableId;
   const manualFields = document.getElementById('manualOrderFields');
   if (manualFields) manualFields.style.display = 'none';
-  const session = (staffDb.tableSessions || []).find(item => item.tableId === tableId && item.status === 'active');
   const table = (staffDb.tables || []).find(item => item.id === tableId);
   document.getElementById('staffOrderTableName').textContent = `${session?.tableName || table?.name || 'Mesa'} · Pedido tomado por ${staffDb.staff?.name || 'mesero'}`;
   document.getElementById('staffOrderNote').value = '';

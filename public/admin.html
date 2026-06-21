@@ -167,6 +167,7 @@
           <div class="col-3 stat"><strong id="financeCash">$0</strong><span>Efectivo</span></div>
           <div class="col-3 stat"><strong id="financeCard">$0</strong><span>Tarjeta</span></div>
           <div class="col-3 stat"><strong id="financeTransfer">$0</strong><span>Transferencia</span></div>
+          <div class="col-3 stat"><strong id="financeTips">$0</strong><span>Propinas</span></div>
 
           <div class="col-6 card">
             <div class="section-head">
@@ -236,7 +237,7 @@
                 </label>
               </div>
               <div id="dailyClosePreview" class="finance-summary-box"></div>
-              <button class="btn success" type="submit">Cerrar día</button>
+              <button class="btn success" type="submit" data-legacy-action="daily-close">Cerrar día</button>
             </form>
           </div>
         </div>
@@ -675,7 +676,7 @@
 
       <div class="inline-actions end" style="margin-top:16px;">
         <button class="btn ghost" onclick="closeAdminDiscountModal()">Cancelar</button>
-        <button class="btn secondary" id="adminDiscountSubmitBtn" onclick="submitAdminDiscount()">Aplicar</button>
+        <button class="btn secondary" id="adminDiscountSubmitBtn" data-legacy-action="submit-discount" onclick="submitAdminDiscount()">Aplicar</button>
       </div>
     </div>
   </div>
@@ -751,12 +752,13 @@
 
       <div class="inline-actions end" style="margin-top:16px;">
         <button class="btn ghost" onclick="closeAdminPaymentModal()">Cancelar</button>
-        <button class="btn success" id="adminPaymentSubmitBtn" onclick="submitAdminPayment()">Confirmar pago</button>
+        <button class="btn success" id="adminPaymentSubmitBtn" data-legacy-action="submit-payment" onclick="submitAdminPayment()">Confirmar pago</button>
       </div>
     </div>
   </div>
 
 
+  <script src="/admin-legacy-compat.js?v=0.9.24"></script>
   <script src="/aurea-print-bridge.js?v=0.9.23"></script>
   <script src="/admin.js?v=0.9.23"></script>
 </body>
