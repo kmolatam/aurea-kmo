@@ -5,7 +5,7 @@ let tablesSignature = '';
 let crmFilter = 'all';
 let pendingLogoDataUrl = undefined;
 const qrCache = new Map();
-const ADMIN_JS_VERSION = '0.9.20-mesero-caja-hotfix';
+const ADMIN_JS_VERSION = '0.9.21-descuento-porcentaje';
 
 function money(value) {
   return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(value || 0);
@@ -690,10 +690,41 @@ function suggestedTipAmount(total, percent) {
   return Math.round((Number(total || 0) * Number(percent || 0) / 100 + Number.EPSILON) * 100) / 100;
 }
 
-function printAdminBillDataBridge({ tableName, lines, total, suggestedTips, note }) {
+function activePaymentForTable(tableId, session = null) {
+  if (session?.id) {
+    return (db.payments || []).find(payment => payment.status !== 'cancelled' && payment.sessionId === session.id) || null;
+  }
+  return (db.payments || []).find(payment => (
+    payment.status !== 'cancelled'
+    && payment.tableId === tableId
+  )) || null;
+}
+
+function adminBillTotalsForTable(tableId) {
+  const session = (db.tableSessions || []).find(item => item.tableId === tableId && item.status === 'active');
+  const table = (db.tables || []).find(item => item.id === tableId);
+  const lines = adminBillLinesForTable(tableId);
+  const subtotal = lines.reduce((sum, line) => sum + Number(line.subtotal || 0), 0);
+  const payment = activePaymentForTable(tableId, session);
+  const discountPercent = Math.max(0, Number(payment?.discountPercent || 0));
+  const discountAmount = Math.min(subtotal, discountPercent ? suggestedTipAmount(subtotal, discountPercent) : Number(payment?.discountAmount || 0));
+  const total = Math.max(0, subtotal - discountAmount);
+  return {
+    session,
+    table,
+    lines,
+    subtotal,
+    discountPercent,
+    discountAmount,
+    total,
+    payment
+  };
+}
+
+function printAdminBillDataBridge({ tableName, lines, subtotal, discountPercent, discountAmount, total, suggestedTips, note }) {
   const bridge = window.AureaPrintBridge;
   if (!bridge?.shouldUseBridge?.() || !bridge.buildBillTicketText) return false;
-  const ticketText = bridge.buildBillTicketText({ tableName, items: lines, total, suggestedTips, note }, {
+  const ticketText = bridge.buildBillTicketText({ tableName, items: lines, subtotal, discountPercent, discountAmount, total, suggestedTips, note }, {
     restaurantName: db?.restaurant?.name || 'AUREA',
     ticketWidthMm: ticketWidthMm(),
     footer: 'Gracias por su preferencia'
@@ -702,27 +733,29 @@ function printAdminBillDataBridge({ tableName, lines, total, suggestedTips, note
 }
 
 function printAdminBillTicketForTable(tableId) {
-  const session = (db.tableSessions || []).find(item => item.tableId === tableId && item.status === 'active');
-  const table = (db.tables || []).find(item => item.id === tableId);
-  const lines = adminBillLinesForTable(tableId);
+  const { session, table, lines, subtotal, discountPercent, discountAmount, total } = adminBillTotalsForTable(tableId);
   if (!lines.length) return toast('Esa mesa aún no tiene productos para imprimir');
   const tableName = session?.tableName || table?.name || 'Mesa';
-  const total = lines.reduce((sum, line) => sum + Number(line.subtotal || 0), 0);
   const suggestedTips = [10, 15, 20].map(percent => ({
     percent,
     amount: suggestedTipAmount(total, percent),
     total: total + suggestedTipAmount(total, percent)
   }));
   const note = 'La propina es opcional y no está incluida en el total.';
-  if (printAdminBillDataBridge({ tableName, lines, total, suggestedTips, note })) return;
+  if (printAdminBillDataBridge({ tableName, lines, subtotal, discountPercent, discountAmount, total, suggestedTips, note })) return;
   const items = lines.map(line => `
     <div class="item"><div class="row"><span>${escapeHtml(line.qty)}× ${escapeHtml(line.name)}</span><strong>${money(line.subtotal)}</strong></div>${line.modifierName ? `<small>${escapeHtml(line.modifierGroupName || 'Opción')}: ${escapeHtml(line.modifierName)}</small>` : ''}${line.note ? `<small>Nota: ${escapeHtml(line.note)}</small>` : ''}</div>
   `).join('');
   const tipRows = suggestedTips.map(tip => `<div class="row"><span>Propina sugerida ${tip.percent}%</span><span>${money(tip.amount)}</span></div>`).join('');
+  const discountRow = discountAmount > 0 || discountPercent > 0
+    ? `<div class="row"><span>Descuento ${escapeHtml(discountPercent)}%</span><span>-${money(discountAmount)}</span></div>`
+    : '';
   printHtmlDocument(`Ticket ${tableName}`, `
     <div class="center"><strong>TICKET OFICIAL</strong><br><span>${escapeHtml(tableName)}</span><br><span class="muted">${dateTime(new Date())}</span></div>
     <div class="line"></div>${items}
-    <div class="line"></div><div class="row total"><span>TOTAL CONSUMO</span><span>${money(total)}</span></div>
+    <div class="line"></div><div class="row"><span>Subtotal</span><span>${money(subtotal)}</span></div>
+    ${discountRow}
+    <div class="row total"><span>Total</span><span>${money(total)}</span></div>
     <div class="line"></div><div><strong>Propina sugerida: 10% / 15% / 20%</strong></div>${tipRows}
     <div class="muted" style="margin-top:6px">${note}</div>
   `, { footer: 'Gracias por su preferencia' });
@@ -786,7 +819,7 @@ function renderPendingPayments(payments) {
       <div class="item-main">
         <div class="item-title">${escapeHtml(payment.tableName || 'Mesa')} · ${money(payment.totalDue || payment.totalPaid || 0)}</div>
         <div class="item-meta">${escapeHtml(paymentMethodName(payment.method))} · Capturó: ${escapeHtml(payment.createdByStaffName || payment.createdBy || 'staff')} · ${dateTime(payment.createdAt)}</div>
-        <div class="item-meta">Subtotal: ${money(payment.subtotal)} · Propina: ${money(payment.tipAmount)} · Descuento: ${money(payment.discountAmount)}</div>
+        <div class="item-meta">Subtotal: ${money(payment.subtotal)} · Descuento ${Number(payment.discountPercent || 0)}%: -${money(payment.discountAmount)} · Total: ${money(payment.totalDue || 0)}</div>
         ${payment.note ? `<div class="item-meta">Nota: ${escapeHtml(payment.note)}</div>` : ''}
       </div>
       <div class="inline-actions end">
@@ -1031,19 +1064,27 @@ function renderActiveSessions() {
     return;
   }
   el.innerHTML = sessions.map(session => `
+    ${(() => {
+      const payment = activePaymentForTable(session.tableId, session);
+      const discountPercent = Number(payment?.discountPercent || 0);
+      const discountPill = discountPercent > 0 ? `<span class="pill">Descuento ${escapeHtml(discountPercent)}%</span>` : '';
+      return `
     <div class="item">
       <div class="item-main">
         <div class="item-title">${escapeHtml(session.tableName)} · ${escapeHtml(session.customerName || 'Cliente sin nombre')}</div>
         <div class="item-meta">${session.customerPhone ? `WhatsApp: ${escapeHtml(session.customerPhone)} · ` : ''}Entrada: ${dateTime(session.createdAt)}</div>
-        <div style="margin-top:8px;"><span class="pill">${session.assignedStaffName ? `Atiende ${escapeHtml(session.assignedStaffName)}` : 'Sin asignar'}</span></div>
+        <div style="margin-top:8px;"><span class="pill">${session.assignedStaffName ? `Atiende ${escapeHtml(session.assignedStaffName)}` : 'Sin asignar'}</span>${discountPill}</div>
       </div>
       <div class="inline-actions end">
         ${session.assignedStaffName ? '' : (db.staff || []).filter(s => s.active !== false).map(member => `<button class="btn small secondary" onclick="adminAssignTable('${session.tableId}', '${member.id}')">Asignar a ${escapeHtml(member.name)}</button>`).join('\n')}
         ${session.paymentStatus === 'paid' ? '<span class="pill">Pagada</span>' : ''}
+        <button class="btn small secondary" onclick="applyAdminDiscountForTable('${session.tableId}')">Descuento %</button>
         <button class="btn small secondary" onclick="printAdminBillTicketForTable('${session.tableId}')">Imprimir ticket</button>
         <button class="btn small success" onclick="adminCloseTable('${session.tableId}')">Cerrar mesa</button>
       </div>
     </div>
+      `;
+    })()}
   `).join('\n');
 }
 
@@ -1093,6 +1134,39 @@ async function adminAssignTable(tableId, staffId) {
   try {
     await api(`/api/admin/tables/${tableId}/take/${staffId}`, { method: 'POST' });
     toast('Mesa asignada');
+    await loadData(false);
+  } catch (error) {
+    toast(error.message);
+  }
+}
+
+async function applyAdminDiscountForTable(tableId) {
+  const { subtotal, discountPercent: currentPercent } = adminBillTotalsForTable(tableId);
+  if (!subtotal) return toast('Esa mesa aún no tiene productos');
+  const raw = prompt('Descuento en porcentaje (0 a 99.99)', currentPercent ? String(currentPercent) : '0');
+  if (raw === null) return;
+  const discountPercent = Number(String(raw).replace(',', '.'));
+  if (!Number.isFinite(discountPercent) || discountPercent < 0 || discountPercent >= 100) {
+    return toast('Descuento inválido. Usa un número entre 0 y 99.99');
+  }
+  const discountAmount = suggestedTipAmount(subtotal, discountPercent);
+  const total = Math.max(0, subtotal - discountAmount);
+  const reason = prompt('Motivo del descuento (opcional)', '') || '';
+  const ok = confirm(`Aplicar descuento ${discountPercent}%\nSubtotal: ${money(subtotal)}\nDescuento: -${money(discountAmount)}\nTotal final: ${money(total)}`);
+  if (!ok) return;
+  try {
+    await api(`/api/admin/tables/${tableId}/payment`, {
+      method: 'POST',
+      body: JSON.stringify({
+        method: 'pending',
+        authorize: false,
+        closeTable: false,
+        discountPercent,
+        discountReason: reason,
+        amountPaid: total
+      })
+    });
+    toast('Descuento aplicado');
     await loadData(false);
   } catch (error) {
     toast(error.message);

@@ -172,7 +172,15 @@
       lines.push(itemLine(item, { width, showPrices: true }));
     });
     lines.push(line(width));
-    lines.push(row('TOTAL CONSUMO', money(payload.total || 0), width));
+    const subtotal = Number(payload.subtotal !== undefined ? payload.subtotal : payload.total || 0);
+    const discountPercent = Math.max(0, Number(payload.discountPercent || 0));
+    const discountAmount = Math.max(0, Number(payload.discountAmount || 0));
+    const total = Math.max(0, Number(payload.total !== undefined ? payload.total : subtotal - discountAmount));
+    lines.push(row('Subtotal', money(subtotal), width));
+    if (discountAmount > 0 || discountPercent > 0) {
+      lines.push(row(`Descuento ${discountPercent}%`, `-${money(discountAmount)}`, width));
+    }
+    lines.push(row('Total', money(total), width));
     const suggestedTips = Array.isArray(payload.suggestedTips) ? payload.suggestedTips : [];
     const optionalTipNote = 'La propina es opcional y no está incluida en el total.';
     if (suggestedTips.length) {
@@ -183,9 +191,10 @@
       });
       lines.push(...wrapText(optionalTipNote, width));
     }
-    if (payload.note && cleanText(payload.note) !== cleanText(optionalTipNote)) {
+    const payloadNote = cleanText(payload.note || '');
+    if (payloadNote && !payloadNote.toLowerCase().includes('propina es opcional')) {
       lines.push('');
-      lines.push(...wrapText(payload.note, width));
+      lines.push(...wrapText(payloadNote, width));
     }
     lines.push(line(width));
     lines.push(center(options.footer || 'Gracias por su preferencia', width));

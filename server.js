@@ -291,6 +291,8 @@ function ensureDbShape(db) {
     payment.method = payment.method || 'pending';
     payment.subtotal = roundMoney(payment.subtotal || 0);
     payment.discountAmount = roundMoney(payment.discountAmount || 0);
+    payment.discountPercent = Math.max(0, Math.min(100, roundMoney(payment.discountPercent || 0)));
+    payment.discountAudit = payment.discountAudit || null;
     payment.tipAmount = roundMoney(payment.tipAmount || 0);
     payment.totalDue = roundMoney(payment.totalDue || payment.subtotal - payment.discountAmount + payment.tipAmount);
     payment.cashAmount = roundMoney(payment.cashAmount || 0);
@@ -704,7 +706,33 @@ function businessDate(value = nowIso()) {
 function normalizePaymentInput(db, tableId, payload = {}) {
   const summary = buildBillSummary(db, tableId) || { subtotal: 0, lines: [], orders: [] };
   const subtotal = roundMoney(summary.subtotal || 0);
-  const discountAmount = Math.max(0, roundMoney(cleanNumber(payload.discountAmount, 0)));
+  const hasDiscountPercent = payload.discountPercent !== undefined && payload.discountPercent !== '';
+  let discountPercent = 0;
+  let discountAmount = 0;
+  if (hasDiscountPercent) {
+    const numericPercent = Number(payload.discountPercent);
+    if (!Number.isFinite(numericPercent)) {
+      const err = new Error('El descuento debe ser un porcentaje numérico');
+      err.status = 400;
+      throw err;
+    }
+    if (numericPercent < 0 || numericPercent > 100) {
+      const err = new Error('El descuento debe estar entre 0 y 100');
+      err.status = 400;
+      throw err;
+    }
+    if (numericPercent >= 100 && payload.allowFullDiscount !== true) {
+      const err = new Error('Descuento 100% reservado para rol superior');
+      err.status = 403;
+      throw err;
+    }
+    discountPercent = roundMoney(numericPercent);
+    discountAmount = roundMoney(subtotal * (discountPercent / 100));
+  } else {
+    discountAmount = Math.max(0, roundMoney(cleanNumber(payload.discountAmount, 0)));
+    discountPercent = subtotal ? roundMoney((discountAmount / subtotal) * 100) : 0;
+  }
+  discountAmount = Math.min(subtotal, discountAmount);
   const tipAmount = Math.max(0, roundMoney(cleanNumber(payload.tipAmount, 0)));
   const totalDue = Math.max(0, roundMoney(subtotal - discountAmount + tipAmount));
   const method = ['cash', 'card', 'transfer', 'mixed', 'split', 'pending', 'other'].includes(payload.method) ? payload.method : 'pending';
@@ -733,6 +761,7 @@ function normalizePaymentInput(db, tableId, payload = {}) {
   return {
     summary,
     subtotal,
+    discountPercent,
     discountAmount,
     tipAmount,
     totalDue,
@@ -744,13 +773,13 @@ function normalizePaymentInput(db, tableId, payload = {}) {
     otherAmount,
     totalPaid,
     changeAmount: method === 'cash' ? Math.max(0, roundMoney(totalPaid - totalDue)) : 0,
+    discountReason: cleanString(payload.discountReason || payload.reason || '', 240),
     note: cleanString(payload.note || payload.notes || '', 300)
   };
 }
 
 function upsertSessionPayment(db, tableId, session, payload = {}, actor = {}) {
   db.payments = Array.isArray(db.payments) ? db.payments : [];
-  const normalized = normalizePaymentInput(db, tableId, payload);
   let payment = payload.paymentId ? db.payments.find(item => item.id === payload.paymentId) : null;
   if (!payment && session?.paymentId) payment = db.payments.find(item => item.id === session.paymentId);
   if (!payment && session?.id) payment = db.payments.find(item => item.sessionId === session.id && item.status !== 'cancelled');
@@ -769,12 +798,28 @@ function upsertSessionPayment(db, tableId, session, payload = {}, actor = {}) {
     db.payments.unshift(payment);
   }
 
+  const normalizedPayload = { ...payload };
+  if (payment) {
+    if (normalizedPayload.discountPercent === undefined && normalizedPayload.discountAmount === undefined) {
+      if (payment.discountPercent !== undefined) normalizedPayload.discountPercent = payment.discountPercent;
+      else normalizedPayload.discountAmount = payment.discountAmount || 0;
+    }
+    if (normalizedPayload.tipAmount === undefined) normalizedPayload.tipAmount = payment.tipAmount || 0;
+    if (normalizedPayload.method === undefined) normalizedPayload.method = payment.method || 'pending';
+  }
+  const normalized = normalizePaymentInput(db, tableId, normalizedPayload);
+  const discountChanged = roundMoney(Number(payment.discountPercent || 0)) !== normalized.discountPercent
+    || roundMoney(Number(payment.discountAmount || 0)) !== normalized.discountAmount
+    || (normalized.discountReason && normalized.discountReason !== payment.discountReason);
+
   Object.assign(payment, {
     tableId,
     tableName: session?.tableName || payment.tableName || '',
     sessionId: session?.id || payment.sessionId || '',
     subtotal: normalized.subtotal,
+    discountPercent: normalized.discountPercent,
     discountAmount: normalized.discountAmount,
+    discountReason: normalized.discountReason || payment.discountReason || '',
     tipAmount: normalized.tipAmount,
     totalDue: normalized.totalDue,
     method: normalized.method,
@@ -790,6 +835,21 @@ function upsertSessionPayment(db, tableId, session, payload = {}, actor = {}) {
     businessDate: payload.businessDate || payment.businessDate || businessDate(now),
     updatedAt: now
   });
+  if (normalized.discountPercent > 0 && discountChanged) {
+    payment.discountAudit = {
+      tableId,
+      tableName: payment.tableName || '',
+      sessionId: payment.sessionId || '',
+      appliedBy: actor.adminName || actor.staffName || 'Admin',
+      appliedByRole: actor.role || 'admin',
+      percent: normalized.discountPercent,
+      amount: normalized.discountAmount,
+      reason: normalized.discountReason || '',
+      at: now
+    };
+  } else if (!normalized.discountPercent) {
+    payment.discountAudit = null;
+  }
 
   if (payload.status === 'approved') {
     payment.approvedAt = payment.approvedAt || now;
@@ -1319,7 +1379,10 @@ function closeTableSession(db, tableId, staff = null, options = {}) {
     paymentTotalDue: payment?.totalDue || 0,
     paymentTotalPaid: payment?.totalPaid || 0,
     tipAmount: payment?.tipAmount || 0,
+    discountPercent: payment?.discountPercent || 0,
     discountAmount: payment?.discountAmount || 0,
+    discountReason: payment?.discountReason || '',
+    discountAudit: payment?.discountAudit || null,
     orderCount: (summary.orders || []).length,
     lineCount: (summary.lines || []).length,
     diners: summary.diners || session.diners || [],
@@ -3057,13 +3120,18 @@ app.post('/api/admin/payments/:id/approve', requireLogin, (req, res) => {
   const session = payment.sessionId ? (db.tableSessions || []).find(item => item.id === payment.sessionId) : activeSessionForTable(db, payment.tableId);
   if (!session) return res.status(404).json({ ok: false, message: 'No hay sesión activa para este pago' });
 
-  upsertSessionPayment(db, payment.tableId, session, {
-    ...payment,
-    ...req.body,
-    paymentId: payment.id,
-    status: 'approved',
-    businessDate: payment.businessDate || businessDate()
-  }, { adminName: req.session.adminUser || 'Admin', role: 'admin' });
+  try {
+    upsertSessionPayment(db, payment.tableId, session, {
+      ...payment,
+      ...req.body,
+      paymentId: payment.id,
+      status: 'approved',
+      businessDate: payment.businessDate || businessDate(),
+      allowFullDiscount: req.session.adminRole === 'superadmin'
+    }, { adminName: req.session.adminUser || 'Admin', role: req.session.adminRole || 'admin' });
+  } catch (error) {
+    return res.status(error.status || 400).json({ ok: false, message: error.message || 'Descuento inválido' });
+  }
 
   let result = null;
   if (req.body.closeTable !== false) {
@@ -3083,11 +3151,17 @@ app.post('/api/admin/tables/:tableId/payment', requireLogin, (req, res) => {
   const db = readDb();
   const session = activeSessionForTable(db, req.params.tableId);
   if (!session) return res.status(404).json({ ok: false, message: 'No hay sesión activa en esta mesa' });
-  const payment = upsertSessionPayment(db, req.params.tableId, session, {
-    ...req.body,
-    status: req.body.authorize === false ? 'pending_admin' : 'approved',
-    businessDate: req.body.businessDate || businessDate()
-  }, { adminName: req.session.adminUser || 'Admin', role: 'admin' });
+  let payment = null;
+  try {
+    payment = upsertSessionPayment(db, req.params.tableId, session, {
+      ...req.body,
+      status: req.body.authorize === false ? 'pending_admin' : 'approved',
+      businessDate: req.body.businessDate || businessDate(),
+      allowFullDiscount: req.session.adminRole === 'superadmin'
+    }, { adminName: req.session.adminUser || 'Admin', role: req.session.adminRole || 'admin' });
+  } catch (error) {
+    return res.status(error.status || 400).json({ ok: false, message: error.message || 'Descuento inválido' });
+  }
   let result = null;
   if (req.body.closeTable !== false && payment.status === 'approved') {
     result = closeTableSession(db, req.params.tableId, null, {
