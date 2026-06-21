@@ -4,8 +4,9 @@ let refreshTimer = null;
 let tablesSignature = '';
 let crmFilter = 'all';
 let pendingLogoDataUrl = undefined;
+let currentAdminPaymentTableId = '';
 const qrCache = new Map();
-const ADMIN_JS_VERSION = '0.9.21-descuento-porcentaje';
+const ADMIN_JS_VERSION = '0.9.22-produccion-pago-mesero-simple';
 
 function money(value) {
   return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(value || 0);
@@ -105,7 +106,7 @@ function renderAll() {
   safeRender('alertas', renderAlerts);
   safeRender('pedidos', renderOrders);
   safeRender('comandas', renderCommandBoard);
-  safeRender('equipo', renderTeam);
+  safeRender('produccion', renderTeam);
   safeRender('historial', renderHistory);
   safeRender('finanzas', renderFinance);
   safeRender('áreas de cocina', renderKitchenStationOptions);
@@ -121,7 +122,7 @@ function renderLiveData() {
   safeRender('alertas', renderAlerts);
   safeRender('pedidos', renderOrders);
   safeRender('comandas', renderCommandBoard);
-  safeRender('equipo', renderTeam);
+  safeRender('produccion', renderTeam);
   safeRender('historial', renderHistory);
   safeRender('finanzas', renderFinance);
 }
@@ -457,6 +458,7 @@ function restaurantPayloadWithKitchenStations(text) {
     address: restaurant.address || '',
     hours: restaurant.hours || '',
     crmOptInText: restaurant.crmOptInText || '',
+    tipsEnabled: restaurant.tipsEnabled !== false,
     accentColor: restaurant.accentColor || '#c9a44c',
     operationMode: restaurant.operationMode || 'commands',
     assignmentMode: restaurant.assignmentMode || 'free',
@@ -1080,7 +1082,7 @@ function renderActiveSessions() {
         ${session.paymentStatus === 'paid' ? '<span class="pill">Pagada</span>' : ''}
         <button class="btn small secondary" onclick="applyAdminDiscountForTable('${session.tableId}')">Descuento %</button>
         <button class="btn small secondary" onclick="printAdminBillTicketForTable('${session.tableId}')">Imprimir ticket</button>
-        <button class="btn small success" onclick="adminCloseTable('${session.tableId}')">Cerrar mesa</button>
+        <button class="btn small success" onclick="openAdminPaymentModal('${session.tableId}')">Ingresar pago</button>
       </div>
     </div>
       `;
@@ -1173,15 +1175,95 @@ async function applyAdminDiscountForTable(tableId) {
   }
 }
 
-async function adminCloseTable(tableId) {
-  if (!confirm('¿Cerrar mesa desde admin? Se limpiarán alertas activas y se guardará historial.')) return;
+function adminTipsEnabled() {
+  return db?.restaurant?.tipsEnabled !== false;
+}
+
+function adminPaymentAmounts() {
+  const { total } = adminBillTotalsForTable(currentAdminPaymentTableId);
+  const method = document.getElementById('adminPaymentMethod')?.value || 'cash';
+  const received = Math.max(0, Number(document.getElementById('adminPaymentReceived')?.value || 0));
+  const useTip = adminTipsEnabled() && document.getElementById('adminPaymentTipFromChange')?.checked;
+  const diff = Math.max(0, received - total);
+  const tipAmount = useTip ? diff : 0;
+  const changeAmount = method === 'cash' && !useTip ? diff : 0;
+  const insufficient = received + 0.001 < total;
+  const invalidOverpay = method !== 'cash' && diff > 0 && !useTip;
+  return { total, method, received, diff, tipAmount, changeAmount, insufficient, invalidOverpay };
+}
+
+function renderAdminPaymentPreview() {
+  const preview = document.getElementById('adminPaymentPreview');
+  const submit = document.getElementById('adminPaymentSubmitBtn');
+  if (!preview || !submit) return;
+  const { total, method, received, tipAmount, changeAmount, insufficient, invalidOverpay } = adminPaymentAmounts();
+  const tipRow = document.getElementById('adminPaymentTipRow');
+  if (tipRow) tipRow.style.display = adminTipsEnabled() && received > total ? 'flex' : 'none';
+  const warnings = [];
+  if (insufficient) warnings.push('Monto insuficiente: no se puede cerrar la cuenta.');
+  if (invalidOverpay) warnings.push('En tarjeta/transferencia captura el total exacto o registra el excedente como propina.');
+  submit.disabled = insufficient || invalidOverpay || !currentAdminPaymentTableId;
+  preview.innerHTML = `
+    <div class="item">
+      <div class="item-main">
+        <div class="item-title">Resumen de pago</div>
+        <div class="item-meta">Método: ${escapeHtml(paymentMethodName(method))}</div>
+        <div class="item-meta">Total cuenta: <strong>${money(total)}</strong></div>
+        <div class="item-meta">Recibido: <strong>${money(received)}</strong></div>
+        <div class="item-meta">Propina: <strong>${money(tipAmount)}</strong></div>
+        <div class="item-meta">Cambio: <strong>${money(changeAmount)}</strong></div>
+        ${warnings.map(warning => `<div class="item-meta" style="color:#ffb4b4;">${escapeHtml(warning)}</div>`).join('')}
+      </div>
+    </div>
+  `;
+}
+
+function openAdminPaymentModal(tableId) {
+  const totals = adminBillTotalsForTable(tableId);
+  if (!totals.lines.length) return toast('Esa mesa aún no tiene productos');
+  currentAdminPaymentTableId = tableId;
+  const tableName = totals.session?.tableName || totals.table?.name || 'Mesa';
+  document.getElementById('adminPaymentTableName').textContent = `${tableName} · Caja/Admin`;
+  document.getElementById('adminPaymentTotal').textContent = money(totals.total);
+  document.getElementById('adminPaymentMethod').value = 'cash';
+  document.getElementById('adminPaymentReceived').value = String(totals.total || '');
+  document.getElementById('adminPaymentTipFromChange').checked = false;
+  document.getElementById('adminPaymentNote').value = '';
+  document.getElementById('adminPaymentModal').classList.add('active');
+  renderAdminPaymentPreview();
+}
+
+function closeAdminPaymentModal() {
+  currentAdminPaymentTableId = '';
+  document.getElementById('adminPaymentModal')?.classList.remove('active');
+}
+
+async function submitAdminPayment() {
+  if (!currentAdminPaymentTableId) return;
+  const amounts = adminPaymentAmounts();
+  if (amounts.insufficient) return toast('Monto insuficiente');
+  if (amounts.invalidOverpay) return toast('Captura total exacto o registra propina');
   try {
-    await api(`/api/admin/tables/${tableId}/close`, { method: 'POST', body: JSON.stringify({ markPaid: true }) });
-    toast('Mesa cerrada');
+    await api(`/api/admin/tables/${currentAdminPaymentTableId}/payment`, {
+      method: 'POST',
+      body: JSON.stringify({
+        method: amounts.method,
+        amountPaid: amounts.received,
+        tipAmount: amounts.tipAmount,
+        closeTable: true,
+        note: document.getElementById('adminPaymentNote')?.value || ''
+      })
+    });
+    closeAdminPaymentModal();
+    toast('Pago registrado y mesa cerrada');
     await loadData(false);
   } catch (error) {
     toast(error.message);
   }
+}
+
+async function adminCloseTable(tableId) {
+  openAdminPaymentModal(tableId);
 }
 
 function renderHistory() {
@@ -1415,6 +1497,8 @@ function renderSettings() {
   if (autoPrint) autoPrint.checked = printSettings.kitchenAutoPrintEnabled !== false;
   const ticketWidth = document.getElementById('ticketWidthMm');
   if (ticketWidth) ticketWidth.value = String(printSettings.ticketWidthMm || 58);
+  const tipsEnabled = document.getElementById('tipsEnabled');
+  if (tipsEnabled) tipsEnabled.checked = db.restaurant.tipsEnabled !== false;
   renderKitchenStationOptions(document.getElementById('itemKitchenStation')?.value || '');
   const wa = db.restaurant.whatsappOfficial || {};
   if (document.getElementById('waOfficialEnabled')) {
@@ -1635,7 +1719,7 @@ const adminTourSteps = [
   { section: 'menu', title: 'Menú editable', body: 'Aquí creas categorías, agregas productos, cambias precios y activas u ocultas platillos cuando se agoten.' },
   { section: 'tables', title: 'Mesas y QR', body: 'Aquí creas las mesas y descargas el QR único que va en cada mesa para que los clientes pidan o llamen al mesero.' },
   { section: 'settings', title: 'Meseros y PIN', body: 'Aquí agregas meseros. El PIN se guarda con prefijo del restaurante, por ejemplo LL-1564, para evitar duplicados entre perfiles.' },
-  { section: 'team', title: 'Equipo en tiempo real', body: 'Aquí revisas qué mesero tomó cada mesa, quién confirma comandas y cómo va su rendimiento.' }
+  { section: 'team', title: 'Producción', body: 'Aquí revisas mesas activas, responsables y operación de comandas por áreas.' }
 ];
 let adminTourIndex = 0;
 
@@ -1914,6 +1998,7 @@ document.getElementById('settingsForm').addEventListener('submit', async event =
       address: document.getElementById('restaurantAddress').value,
       hours: document.getElementById('restaurantHours').value,
       crmOptInText: document.getElementById('restaurantCrmText').value,
+      tipsEnabled: document.getElementById('tipsEnabled')?.checked !== false,
       accentColor: document.getElementById('restaurantAccentColor').value,
       operationMode: document.getElementById('operationMode').value,
       assignmentMode: document.getElementById('assignmentMode').value,
@@ -2126,11 +2211,10 @@ function showAureaReleaseNotesOnce(panel = 'panel') {
 function tourStepsFor(panel = 'panel') {
   if (panel === 'staff') {
     return [
-      { selector: '.client-hero', title: 'Panel de mesero', text: 'Aquí entras a Nuevo pedido, Cocina, Tour y Ayuda.' },
+      { selector: '.client-hero', title: 'Panel de mesero', text: 'Aquí entras a Nuevo pedido, Tour y Ayuda.' },
       { selector: '#staffSessions', title: 'Mesas asignadas', text: 'El mesero trabaja solo con las mesas asignadas por Caja/Admin.' },
       { selector: '#staffSessions', title: 'Nuevo pedido', text: 'En una mesa activa toca Nuevo pedido: eliges categoría, platillo, cantidad y nota.' },
-      { selector: '#staffSessions', title: 'Mesas asignadas', text: 'Desde aquí el mesero agrega pedidos. Cuenta, ticket y pago se hacen en Caja/Admin.' },
-      { selector: '#staffAlerts', title: 'Alertas', text: 'Aquí aparecen solicitudes del cliente y avisos importantes.' }
+      { selector: '#staffSessions', title: 'Mesas asignadas', text: 'Desde aquí el mesero agrega pedidos. Cuenta, ticket, pago y descuento se hacen en Caja/Admin.' }
     ];
   }
   if (panel === 'kitchen') {
@@ -2142,7 +2226,7 @@ function tourStepsFor(panel = 'panel') {
     ];
   }
   return [
-    { selector: '.sidebar', title: 'Menú admin', text: 'Desde aquí navegas entre comandas, equipo, historial, corte diario, menú y mesas.' },
+    { selector: '.sidebar', title: 'Menú admin', text: 'Desde aquí navegas entre comandas, producción, historial, corte diario, menú y mesas.' },
     { selector: '#commands', title: 'Comandas', text: 'Monitorea pedidos activos y operación en vivo.' },
     { selector: '#finance', title: 'Corte diario', text: 'Autoriza pagos, registra egresos y cierra caja.' },
     { selector: '#menu', title: 'Menú', text: 'Edita categorías, platillos, precios y disponibilidad.' },

@@ -7,7 +7,7 @@ let currentStaffOrderDraft = [];
 let currentStaffCategoryId = '';
 let currentStaffEditingItemId = '';
 let guidedTourState = null;
-const STAFF_JS_VERSION = '0.9.20-mesero-caja-hotfix';
+const STAFF_JS_VERSION = '0.9.22-mesero-simple';
 let notificationsBaselineReady = false;
 const seenAlertIds = new Set();
 const seenOrderIds = new Set();
@@ -291,10 +291,6 @@ function showStaffApp() {
   if (isStaffPosMode()) document.body.classList.add('pos-mode');
   ensureAureaAssist('staff');
   if (!isStaffPosMode()) showAureaReleaseNotesOnce('staff');
-  updateNotificationPrompt();
-  if (!isStaffPosMode() && canUseNotifications() && Notification.permission !== 'granted') {
-    toast('Tip: activa notificaciones para recibir comandas y alertas en tiempo real.');
-  }
   loadStaffData();
   if (!refreshTimer) refreshTimer = setInterval(loadStaffData, 4000);
 }
@@ -312,19 +308,11 @@ async function loadStaffData() {
 function renderStaff() {
   document.getElementById('staffName').textContent = staffDb.staff?.name || 'Mesero';
   document.getElementById('staffRestaurant').textContent = staffDb.restaurant?.name || 'AUREA';
-  const newAlerts = staffDb.alerts.filter(alert => alert.status === 'new').length;
-  const activeOrders = staffDb.orders.filter(order => ['new', 'confirmed', 'in_progress', 'ready'].includes(order.status)).length;
-  document.getElementById('staffAlertCount').textContent = `${newAlerts} nueva${newAlerts === 1 ? '' : 's'}`;
-  document.getElementById('staffOrderCount').textContent = `${activeOrders} activa${activeOrders === 1 ? '' : 's'}`;
   const mySessions = (staffDb.tableSessions || []).filter(session => session.status === 'active' && session.assignedStaffId === staffDb.staff?.id);
-  document.getElementById('staffTableCount').textContent = `${mySessions.length} activa${mySessions.length === 1 ? '' : 's'}`;
+  const tableCount = document.getElementById('staffTableCount');
+  if (tableCount) tableCount.textContent = `${mySessions.length} activa${mySessions.length === 1 ? '' : 's'}`;
   renderSessions();
   renderPosQuickPanel();
-  renderStaffStats();
-  renderAlerts();
-  renderOrders();
-  maybeNotifyStaff();
-  updateNotificationPrompt();
 }
 
 
@@ -410,6 +398,7 @@ function metric(value, suffix = '') {
 
 function renderSessions() {
   const el = document.getElementById('staffSessions');
+  if (!el) return;
   const staffId = staffDb.staff?.id;
   const mode = staffDb.restaurant?.assignmentMode || 'free';
   let sessions = (staffDb.tableSessions || []).filter(session => session.status === 'active');
@@ -445,6 +434,7 @@ function renderSessions() {
 
 function renderStaffStats() {
   const el = document.getElementById('staffStats');
+  if (!el) return;
   const stat = (staffDb.staffStats || []).find(item => item.staffId === staffDb.staff?.id);
   if (!stat) {
     el.innerHTML = '<span>Sin estadísticas todavía.</span>';
@@ -930,6 +920,7 @@ async function submitStaffOrder() {
 
 function renderAlerts() {
   const el = document.getElementById('staffAlerts');
+  if (!el) return;
   const alerts = staffDb.alerts.filter(alert => ['new', 'in_progress'].includes(alert.status)).slice(0, 20);
   if (alerts.length === 0) {
     el.innerHTML = '<div class="item"><div>No hay alertas todavía.</div></div>';
@@ -973,6 +964,7 @@ function estimateActions(orderId) {
 
 function renderOrders() {
   const el = document.getElementById('staffOrders');
+  if (!el) return;
   const orders = staffDb.orders.filter(order => !['delivered', 'cancelled'].includes(order.status)).slice(0, 30);
   if (orders.length === 0) {
     el.innerHTML = '<div class="item"><div>No hay comandas activas.</div></div>';
@@ -1072,7 +1064,7 @@ function releaseNotesFor(panel = 'panel') {
     return [
       'Nuevo pedido limpio: ya no duplica productos anteriores.',
       'Mesero captura pedidos y envía comandas a cocina/barra.',
-      'Cuenta, ticket, pago y cierre quedan en Caja/Admin.'
+      'La pantalla del mesero queda enfocada solo en sus mesas.'
     ];
   }
   if (panel === 'kitchen') {
@@ -1125,11 +1117,10 @@ function showAureaReleaseNotesOnce(panel = 'panel') {
 function tourStepsFor(panel = 'panel') {
   if (panel === 'staff') {
     return [
-      { selector: '.client-hero', title: 'Panel de mesero', text: 'Aquí entras a Nuevo pedido, Cocina, Tour y Ayuda.' },
+      { selector: '.client-hero', title: 'Panel de mesero', text: 'Aquí entras a Nuevo pedido, Tour y Ayuda.' },
       { selector: '#staffSessions', title: 'Mesas asignadas', text: 'Trabaja solo con las mesas asignadas por Caja/Admin.' },
       { selector: '#staffSessions', title: 'Nuevo pedido', text: 'En una mesa activa toca Nuevo pedido: eliges categoría, platillo, cantidad y nota.' },
-      { selector: '#staffSessions', title: 'Mesas asignadas', text: 'Desde aquí agregas pedidos a tus mesas. Cuenta, ticket y pago se hacen en Caja/Admin.' },
-      { selector: '#staffAlerts', title: 'Alertas', text: 'Aquí aparecen solicitudes del cliente y avisos importantes.' }
+      { selector: '#staffSessions', title: 'Caja/Admin', text: 'Cuenta, ticket, pago y descuento se hacen fuera del panel Mesero.' }
     ];
   }
   if (panel === 'kitchen') {
@@ -1141,7 +1132,7 @@ function tourStepsFor(panel = 'panel') {
     ];
   }
   return [
-    { selector: '.sidebar', title: 'Menú admin', text: 'Desde aquí navegas entre comandas, equipo, historial, corte diario, menú y mesas.' },
+    { selector: '.sidebar', title: 'Menú admin', text: 'Desde aquí navegas entre comandas, producción, historial, corte diario, menú y mesas.' },
     { selector: '#commands', title: 'Comandas', text: 'Monitorea pedidos activos y operación en vivo.' },
     { selector: '#finance', title: 'Corte diario', text: 'Autoriza pagos, registra egresos y cierra caja.' },
     { selector: '#menu', title: 'Menú', text: 'Edita categorías, platillos, precios y disponibilidad.' },

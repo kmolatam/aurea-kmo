@@ -199,6 +199,7 @@ function ensureDbShape(db) {
   db.restaurant.operationMode = db.restaurant.operationMode || 'commands';
   db.restaurant.crmOptInText = db.restaurant.crmOptInText || '';
   db.restaurant.crmEnabled = Boolean(db.restaurant.crmEnabled);
+  db.restaurant.tipsEnabled = db.restaurant.tipsEnabled !== false;
   db.restaurant.pinPrefix = restaurantPinPrefix(db);
   db.restaurant.assignmentMode = db.restaurant.assignmentMode || 'free';
   db.restaurant.kitchenStations = normalizeKitchenStations(db.restaurant.kitchenStations);
@@ -733,7 +734,8 @@ function normalizePaymentInput(db, tableId, payload = {}) {
     discountPercent = subtotal ? roundMoney((discountAmount / subtotal) * 100) : 0;
   }
   discountAmount = Math.min(subtotal, discountAmount);
-  const tipAmount = Math.max(0, roundMoney(cleanNumber(payload.tipAmount, 0)));
+  const tipsEnabled = db.restaurant?.tipsEnabled !== false;
+  const tipAmount = tipsEnabled ? Math.max(0, roundMoney(cleanNumber(payload.tipAmount, 0))) : 0;
   const totalDue = Math.max(0, roundMoney(subtotal - discountAmount + tipAmount));
   const method = ['cash', 'card', 'transfer', 'mixed', 'split', 'pending', 'other'].includes(payload.method) ? payload.method : 'pending';
 
@@ -746,7 +748,12 @@ function normalizePaymentInput(db, tableId, payload = {}) {
   const explicitPaid = payload.amountPaid !== undefined && payload.amountPaid !== '' ? Math.max(0, roundMoney(cleanNumber(payload.amountPaid, totalDue))) : null;
 
   if (method !== 'mixed' && method !== 'split') {
-    const amount = explicitPaid !== null ? explicitPaid : totalDue;
+    let amount = explicitPaid;
+    if (amount === null && method === 'cash' && payload.cashAmount !== undefined) amount = cashAmount;
+    if (amount === null && method === 'card' && payload.cardAmount !== undefined) amount = cardAmount;
+    if (amount === null && method === 'transfer' && payload.transferAmount !== undefined) amount = transferAmount;
+    if (amount === null && method === 'other' && payload.otherAmount !== undefined) amount = otherAmount;
+    if (amount === null) amount = totalDue;
     cashAmount = method === 'cash' ? amount : 0;
     cardAmount = method === 'card' ? amount : 0;
     transferAmount = method === 'transfer' ? amount : 0;
@@ -756,6 +763,17 @@ function normalizePaymentInput(db, tableId, payload = {}) {
     totalPaid = explicitPaid;
   } else if (!totalPaid) {
     totalPaid = totalDue;
+  }
+
+  if ((payload.status === 'approved' || payload.closeTable === true) && totalPaid + 0.001 < totalDue) {
+    const err = new Error('Monto recibido insuficiente para cerrar la cuenta');
+    err.status = 400;
+    throw err;
+  }
+  if ((payload.status === 'approved' || payload.closeTable === true) && method !== 'cash' && totalPaid > totalDue + 0.001) {
+    const err = new Error('En tarjeta o transferencia captura el total exacto o registra propina');
+    err.status = 400;
+    throw err;
   }
 
   return {
@@ -873,7 +891,7 @@ function computeDailyFinanceSummary(db, date = businessDate()) {
   const expenses = (db.expenses || []).filter(expense => (expense.businessDate || businessDate(expense.createdAt)) === date && expense.status !== 'cancelled');
   const closures = (db.tableClosures || []).filter(item => businessDate(item.closedAt || item.createdAt) === date);
   const salesByMethod = payments.reduce((acc, payment) => {
-    acc.cash += Number(payment.cashAmount || 0);
+    acc.cash += Math.max(0, Number(payment.cashAmount || 0) - Number(payment.changeAmount || 0));
     acc.card += Number(payment.cardAmount || 0);
     acc.transfer += Number(payment.transferAmount || 0);
     acc.other += Number(payment.otherAmount || 0);
@@ -2844,6 +2862,7 @@ app.put('/api/admin/restaurant', requireLogin, (req, res) => {
     assignmentMode: assignmentModes.includes(req.body.assignmentMode) ? req.body.assignmentMode : (db.restaurant.assignmentMode || 'free'),
     crmOptInText: cleanString(req.body.crmOptInText || '', 220),
     crmEnabled: req.body.crmEnabled === true || req.body.crmEnabled === 'true',
+    tipsEnabled: req.body.tipsEnabled !== false && req.body.tipsEnabled !== 'false',
     instanceSlug: cleanSlug(req.body.instanceSlug || db.restaurant.instanceSlug || db.restaurant.name || 'aurea-demo'),
     pinPrefix: cleanString(req.body.pinPrefix || db.restaurant.pinPrefix || restaurantPinPrefix(db), 6).toUpperCase().replace(/[^A-Z0-9]/g, '') || restaurantPinPrefix(db),
     kitchenStations: req.body.kitchenStations !== undefined ? normalizeKitchenStations(req.body.kitchenStations) : normalizeKitchenStations(db.restaurant.kitchenStations),
@@ -3106,6 +3125,16 @@ app.post('/api/staff/tables/:tableId/release', requireStaff, (req, res) => {
 
 app.post('/api/admin/tables/:tableId/close', requireLogin, (req, res) => {
   const db = readDb();
+  const session = activeSessionForTable(db, req.params.tableId);
+  if (!session) return res.status(404).json({ ok: false, message: 'No hay sesión activa en esta mesa' });
+  if (req.body.markPaid !== false) {
+    const payment = session.paymentId
+      ? (db.payments || []).find(item => item.id === session.paymentId)
+      : (db.payments || []).find(item => item.sessionId === session.id && item.status === 'approved');
+    if (!payment || payment.status !== 'approved') {
+      return res.status(409).json({ ok: false, message: 'Primero ingresa y confirma el pago' });
+    }
+  }
   const result = closeTableSession(db, req.params.tableId, null, { markPaid: req.body.markPaid !== false, closedByStaffName: 'Admin' });
   if (!result) return res.status(404).json({ ok: false, message: 'No hay sesión activa en esta mesa' });
   writeDb(db);

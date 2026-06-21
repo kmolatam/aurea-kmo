@@ -42,10 +42,9 @@
     <section class="client-hero">
       <div class="pill" id="staffName">Mesero</div>
       <h1 id="staffRestaurant">AUREA</h1>
-      <p class="muted" style="line-height:1.5; margin:0;">Alertas y comandas en tiempo real desde cualquier celular, sin instalar app.</p>
+      <p class="muted" style="line-height:1.5; margin:0;">Toma pedidos y envía comandas a cocina/barra.</p>
       <div class="inline-actions" style="margin-top:14px;">
         <button class="btn small" onclick="openManualOrderModal()">Nuevo pedido</button>
-        <a class="btn secondary small" href="/kitchen.html" target="_blank">Cocina</a>
         <button class="btn ghost small" onclick="staffLogout()">Salir</button>
       </div>
     </section>
@@ -70,45 +69,12 @@
       <div class="muted pos-help">Tip: primero elige mesa, luego crea pedido. Cuenta, ticket y pago se hacen en Caja/Admin.</div>
     </section>
 
-    <section id="notificationPrompt" class="card notification-card" style="display:none; margin-bottom:14px;">
-      <div class="section-head">
-        <div>
-          <h2 style="margin:0;">Activa notificaciones</h2>
-          <p class="muted" style="margin:6px 0 0; line-height:1.5;">Permite notificaciones de AUREA para recibir avisos de nuevas comandas y alertas aunque estés viendo otra pestaña. Recomendado activarlas en el primer ingreso.</p>
-        </div>
-        <button class="btn small" id="enableNotificationsBtn" type="button" onclick="enableStaffNotifications()">Activar</button>
-      </div>
-    </section>
-
     <section class="card" style="margin-bottom:14px;">
       <div class="section-head">
         <h2 style="margin:0;">Mis mesas</h2>
         <span class="pill" id="staffTableCount">0 activas</span>
       </div>
       <div id="staffSessions" class="list" style="margin-top:14px;"></div>
-    </section>
-
-    <section class="card" style="margin-bottom:14px;">
-      <div class="section-head">
-        <h2 style="margin:0;">Mi rendimiento</h2>
-        <span class="pill">en vivo</span>
-      </div>
-      <div id="staffStats" class="staff-metrics" style="margin-top:14px;"></div>
-    </section>
-    <section class="card" style="margin-bottom:14px;">
-      <div class="section-head">
-        <h2 style="margin:0;">Alertas</h2>
-        <span class="pill" id="staffAlertCount">0 nuevas</span>
-      </div>
-      <div id="staffAlerts" class="list" style="margin-top:14px;"></div>
-    </section>
-
-    <section class="card">
-      <div class="section-head">
-        <h2 style="margin:0;">Comandas</h2>
-        <span class="pill" id="staffOrderCount">0 activas</span>
-      </div>
-      <div id="staffOrders" class="list" style="margin-top:14px;"></div>
     </section>
   </main>
 
@@ -158,7 +124,7 @@
   <div id="staffPaymentModal" class="modal-backdrop" style="display:none;"></div>
 
 
-  <script src="/aurea-print-bridge.js?v=0.9.21"></script>
-  <script src="/staff.js?v=0.9.20"></script>
+  <script src="/aurea-print-bridge.js?v=0.9.22"></script>
+  <script src="/staff.js?v=0.9.22"></script>
 </body>
 </html>

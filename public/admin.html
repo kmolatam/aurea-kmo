@@ -53,7 +53,7 @@
       <nav>
         <button class="nav-btn active" data-section="dashboard">Dashboard</button>
         <button class="nav-btn" data-section="commands">Comandas</button>
-        <button class="nav-btn" data-section="team">Equipo</button>
+        <button class="nav-btn" data-section="team">Producción</button>
         <button class="nav-btn" data-section="history">Historial</button>
         <button class="nav-btn" data-section="finance">Corte diario</button>
         <button class="nav-btn" data-section="menu">Menú</button>
@@ -117,8 +117,8 @@
 
 
       <section id="team" class="section">
-        <h2>Equipo en tiempo real</h2>
-        <p class="muted">Mide quién tomó cada mesa, tiempo de respuesta, comandas y clientes VIP captados.</p>
+        <h2>Producción</h2>
+        <p class="muted">Mesas activas, responsables y operación de comandas por áreas.</p>
         <div class="grid">
           <div class="col-12 card">
             <div style="display:flex; justify-content:space-between; gap:12px; align-items:center; flex-wrap:wrap;">
@@ -131,7 +131,7 @@
             <div id="activeSessionsList" class="list" style="margin-top:14px;"></div>
           </div>
           <div class="col-12 card">
-            <h3 style="margin-top:0;">Rendimiento de meseros</h3>
+            <h3 style="margin-top:0;">Operación de personal</h3>
             <div id="staffStatsList" class="list"></div>
           </div>
         </div>
@@ -498,6 +498,10 @@
                     <input id="kitchenAutoPrintEnabled" type="checkbox" checked />
                     <span>Permitir autoimpresión en cocina</span>
                   </label>
+                  <label class="col-6 check-row">
+                    <input id="tipsEnabled" type="checkbox" checked />
+                    <span>Registrar propinas</span>
+                  </label>
                   <label class="col-6">Ancho de ticket
                     <select id="ticketWidthMm">
                       <option value="58">58 mm · Urovo / portátil</option>
@@ -648,7 +652,52 @@
   </div>
 
 
-  <script src="/aurea-print-bridge.js?v=0.9.21"></script>
-  <script src="/admin.js?v=0.9.21"></script>
+  <div id="adminPaymentModal" class="modal-backdrop">
+    <div class="modal">
+      <div class="section-head">
+        <div>
+          <h2 style="margin:0;">Ingresar pago</h2>
+          <p id="adminPaymentTableName" class="muted" style="margin:6px 0 0;">Mesa</p>
+        </div>
+        <button class="btn ghost small" onclick="closeAdminPaymentModal()">Cerrar</button>
+      </div>
+
+      <div class="bill-total-box">
+        <span>Total de la cuenta</span>
+        <strong id="adminPaymentTotal">$0</strong>
+      </div>
+
+      <div class="grid" style="margin-top:14px;">
+        <label class="col-6">Método de pago
+          <select id="adminPaymentMethod" onchange="renderAdminPaymentPreview()">
+            <option value="cash">Efectivo</option>
+            <option value="card">Tarjeta</option>
+            <option value="transfer">Transferencia</option>
+          </select>
+        </label>
+        <label class="col-6">Monto recibido
+          <input id="adminPaymentReceived" class="input" type="number" min="0" step="0.01" placeholder="0" oninput="renderAdminPaymentPreview()" />
+        </label>
+        <label class="col-12 check-row" id="adminPaymentTipRow">
+          <input id="adminPaymentTipFromChange" type="checkbox" onchange="renderAdminPaymentPreview()" />
+          <span>Registrar diferencia como propina</span>
+        </label>
+        <label class="col-12">Nota opcional
+          <input id="adminPaymentNote" class="input" placeholder="Ej. efectivo, voucher, autorización..." />
+        </label>
+      </div>
+
+      <div id="adminPaymentPreview" class="list" style="margin-top:14px;"></div>
+
+      <div class="inline-actions end" style="margin-top:16px;">
+        <button class="btn ghost" onclick="closeAdminPaymentModal()">Cancelar</button>
+        <button class="btn success" id="adminPaymentSubmitBtn" onclick="submitAdminPayment()">Confirmar pago</button>
+      </div>
+    </div>
+  </div>
+
+
+  <script src="/aurea-print-bridge.js?v=0.9.22"></script>
+  <script src="/admin.js?v=0.9.22"></script>
 </body>
 </html>
