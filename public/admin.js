@@ -67,6 +67,40 @@ async function api(url, options = {}) {
   return data;
 }
 
+function postJsonCompat(url, payload, onSuccess, onError) {
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', url, true);
+  xhr.withCredentials = true;
+  xhr.setRequestHeader('Content-Type', 'application/json');
+  xhr.onreadystatechange = function () {
+    if (xhr.readyState !== 4) return;
+    let data = {};
+    try {
+      data = JSON.parse(xhr.responseText || '{}');
+    } catch (error) {
+      data = { ok: false, message: xhr.responseText || 'Respuesta invalida' };
+    }
+    if (xhr.status >= 200 && xhr.status < 300 && data.ok !== false) {
+      onSuccess(data);
+    } else {
+      onError(new Error(data.message || `Error ${xhr.status}`));
+    }
+  };
+  xhr.onerror = function () {
+    onError(new Error('Error de red'));
+  };
+  xhr.send(JSON.stringify(payload || {}));
+}
+
+function refreshAfterCriticalAction() {
+  try {
+    const result = loadData(false);
+    if (result && typeof result.catch === 'function') result.catch(() => window.location.reload());
+  } catch (error) {
+    window.location.reload();
+  }
+}
+
 async function checkSession() {
   const session = await api('/api/session');
   if (session.isAdmin) showAdmin();
@@ -1155,10 +1189,6 @@ function renderActiveSessions() {
       const payment = activePaymentForTable(session.tableId, session);
       const discountPercent = Number(payment?.discountPercent || 0);
       const discountPill = discountPercent > 0 ? `<span class="pill">Descuento ${escapeHtml(discountPercent)}%</span>` : '';
-      const assignButtons = (db.staff || [])
-        .filter(s => s.active !== false && s.id !== session.assignedStaffId)
-        .map(member => `<button class="btn small secondary" onclick="adminAssignTable('${session.tableId}', '${member.id}')">${session.assignedStaffId ? 'Reasignar a' : 'Asignar a'} ${escapeHtml(member.name)}</button>`)
-        .join('\n');
       return `
     <div class="item">
       <div class="item-main">
@@ -1167,7 +1197,6 @@ function renderActiveSessions() {
         <div style="margin-top:8px;"><span class="pill">${session.assignedStaffName ? `Atiende ${escapeHtml(session.assignedStaffName)}` : 'Sin asignar'}</span>${discountPill}</div>
       </div>
       <div class="inline-actions end">
-        ${assignButtons}
         ${session.assignedStaffName ? `<button class="btn small ghost" onclick="adminReleaseTable('${session.tableId}')">Liberar mesa</button>` : ''}
         ${session.paymentStatus === 'paid' ? '<span class="pill">Pagada</span>' : ''}
         <button class="btn small secondary" type="button" data-legacy-action="open-discount" data-table-id="${escapeHtml(session.tableId)}" onclick="applyAdminDiscountForTable('${session.tableId}')">Descuento %</button>
@@ -1387,32 +1416,28 @@ function closeAdminDiscountModal() {
   document.getElementById('adminDiscountModal')?.classList.remove('active');
 }
 
-async function submitAdminDiscount() {
+function submitAdminDiscount() {
   if (!currentAdminDiscountTableId) return;
   const { discountPercent, validPercent, total, fullDiscount, reason } = adminDiscountAmounts();
   if (!validPercent) return toast('Descuento invalido');
   if (fullDiscount && !reason) return toast('Motivo obligatorio para descuento total');
-  try {
-    legacyVisibleLog('enviando request descuento');
-    await api(`/api/admin/tables/${currentAdminDiscountTableId}/payment`, {
-      method: 'POST',
-      body: JSON.stringify({
-        method: fullDiscount ? 'courtesy' : 'pending',
-        authorize: false,
-        closeTable: false,
-        discountPercent,
-        discountReason: reason,
-        amountPaid: fullDiscount ? 0 : total
-      })
-    });
+  legacyVisibleLog('enviando request descuento');
+  postJsonCompat(`/api/admin/tables/${currentAdminDiscountTableId}/payment`, {
+    method: fullDiscount ? 'courtesy' : 'pending',
+    authorize: false,
+    closeTable: false,
+    discountPercent,
+    discountReason: reason,
+    amountPaid: fullDiscount ? 0 : total
+  }, function () {
     legacyVisibleLog('respuesta backend descuento OK');
     closeAdminDiscountModal();
     toast('Descuento aplicado');
-    await loadData(false);
-  } catch (error) {
+    refreshAfterCriticalAction();
+  }, function (error) {
     legacyVisibleLog(`respuesta backend descuento ERROR: ${error.message}`);
     toast(error.message);
-  }
+  });
 }
 
 function openAdminComplimentaryModal(tableId) {
@@ -1435,31 +1460,27 @@ function closeAdminComplimentaryModal() {
   document.getElementById('adminComplimentaryModal')?.classList.remove('active');
 }
 
-async function submitAdminComplimentary() {
+function submitAdminComplimentary() {
   if (!currentAdminCompTableId) return;
   const itemId = document.getElementById('adminCompItemSelect')?.value || '';
   const qty = Math.max(1, Math.min(20, Math.floor(Number(document.getElementById('adminCompQty')?.value || 1))));
   const reason = document.getElementById('adminCompReason')?.value || '';
   if (!itemId) return toast('Selecciona un producto');
-  try {
-    legacyVisibleLog('enviando request cortesia');
-    await api(`/api/admin/tables/${currentAdminCompTableId}/complimentary-item`, {
-      method: 'POST',
-      body: JSON.stringify({
-        itemId,
-        qty,
-        reason,
-        idempotency_key: `comp-${currentAdminCompTableId}-${itemId}-${Date.now()}`
-      })
-    });
+  legacyVisibleLog('enviando request cortesia');
+  postJsonCompat(`/api/admin/tables/${currentAdminCompTableId}/complimentary-item`, {
+    itemId,
+    qty,
+    reason,
+    idempotency_key: `comp-${currentAdminCompTableId}-${itemId}-${Date.now()}`
+  }, function () {
     legacyVisibleLog('respuesta backend cortesia OK');
     closeAdminComplimentaryModal();
     toast('Cortesía enviada a producción');
-    await loadData(false);
-  } catch (error) {
+    refreshAfterCriticalAction();
+  }, function (error) {
     legacyVisibleLog(`respuesta backend cortesia ERROR: ${error.message}`);
     toast(error.message);
-  }
+  });
 }
 
 function adminTipsEnabled() {
@@ -1539,32 +1560,37 @@ function closeAdminPaymentModal() {
   document.getElementById('adminPaymentModal')?.classList.remove('active');
 }
 
-async function submitAdminPayment() {
+function submitAdminPayment() {
   if (!currentAdminPaymentTableId) return;
   const amounts = adminPaymentAmounts();
   if (amounts.insufficient) return toast('Monto insuficiente');
   if (amounts.invalidOverpay) return toast('Captura total exacto o registra propina');
-  try {
-    legacyVisibleLog('enviando request pago');
-    await api(`/api/admin/tables/${currentAdminPaymentTableId}/payment`, {
-      method: 'POST',
-      body: JSON.stringify({
-        method: amounts.method,
-        amountPaid: amounts.received,
-        tipAmount: amounts.tipAmount,
-        closeTable: true,
-        note: document.getElementById('adminPaymentNote')?.value || ''
-      })
-    });
+  legacyVisibleLog('enviando request pago');
+  postJsonCompat(`/api/admin/tables/${currentAdminPaymentTableId}/payment`, {
+    method: amounts.method,
+    amountPaid: amounts.received,
+    tipAmount: amounts.tipAmount,
+    closeTable: true,
+    note: document.getElementById('adminPaymentNote')?.value || ''
+  }, function () {
     legacyVisibleLog('respuesta backend pago OK');
     closeAdminPaymentModal();
     toast('Pago registrado y mesa cerrada');
-    await loadData(false);
-  } catch (error) {
+    refreshAfterCriticalAction();
+  }, function (error) {
     legacyVisibleLog(`respuesta backend pago ERROR: ${error.message}`);
     toast(error.message);
-  }
+  });
 }
+
+window.AureaAdminActions = {
+  openPayment: openAdminPaymentModal,
+  submitPayment: submitAdminPayment,
+  openDiscount: applyAdminDiscountForTable,
+  submitDiscount: submitAdminDiscount,
+  openComplimentary: openAdminComplimentaryModal,
+  submitComplimentary: submitAdminComplimentary
+};
 
 async function adminCloseTable(tableId) {
   openAdminPaymentModal(tableId);

@@ -164,7 +164,14 @@
 
   function callAction(action, button) {
     var tableId = button && button.getAttribute ? button.getAttribute('data-table-id') : '';
+    var actions = window.AureaAdminActions || {};
     log('action:' + action, tableId || '');
+    if (action === 'open-payment' && typeof actions.openPayment === 'function') return actions.openPayment(tableId);
+    if (action === 'open-discount' && typeof actions.openDiscount === 'function') return actions.openDiscount(tableId);
+    if (action === 'open-complimentary' && typeof actions.openComplimentary === 'function') return actions.openComplimentary(tableId);
+    if (action === 'submit-payment' && typeof actions.submitPayment === 'function') return actions.submitPayment();
+    if (action === 'submit-discount' && typeof actions.submitDiscount === 'function') return actions.submitDiscount();
+    if (action === 'submit-complimentary' && typeof actions.submitComplimentary === 'function') return actions.submitComplimentary();
     if (action === 'open-payment' && typeof window.openAdminPaymentModal === 'function') return window.openAdminPaymentModal(tableId);
     if (action === 'open-discount' && typeof window.applyAdminDiscountForTable === 'function') return window.applyAdminDiscountForTable(tableId);
     if (action === 'open-complimentary' && typeof window.openAdminComplimentaryModal === 'function') return window.openAdminComplimentaryModal(tableId);
@@ -177,30 +184,43 @@
     return null;
   }
 
+  function isSubmitAction(action) {
+    return action === 'submit-payment'
+      || action === 'submit-discount'
+      || action === 'submit-complimentary'
+      || action === 'daily-close';
+  }
+
+  function stopEvent(event) {
+    if (event.preventDefault) event.preventDefault();
+    if (event.stopImmediatePropagation) event.stopImmediatePropagation();
+    if (event.stopPropagation) event.stopPropagation();
+  }
+
   function onAction(event) {
     var button = closestActionElement(event.target || event.srcElement);
     if (!button) return;
     var action = button.getAttribute('data-legacy-action');
+    var shouldStop = isSubmitAction(action);
     var now = Date.now ? Date.now() : new Date().getTime();
     if (lastAction === action && now - lastActionAt < 650) {
-      if (event.preventDefault) event.preventDefault();
-      if (event.stopImmediatePropagation) event.stopImmediatePropagation();
-      if (event.stopPropagation) event.stopPropagation();
-      return false;
+      if (shouldStop) {
+        stopEvent(event);
+        return false;
+      }
+      return true;
     }
     lastAction = action;
     lastActionAt = now;
     visibleLog('click ' + actionLabel(action) + ' detectado');
-    if (event.preventDefault) event.preventDefault();
-    if (event.stopImmediatePropagation) event.stopImmediatePropagation();
-    if (event.stopPropagation) event.stopPropagation();
+    if (shouldStop) stopEvent(event);
     try {
       callAction(action, button);
     } catch (error) {
       log('action-error:' + action, error && error.stack ? error.stack : String(error));
       visibleLog(error && error.message ? error.message : 'Error en accion legacy');
     }
-    return false;
+    return !shouldStop;
   }
 
   window.onerror = function (message, source, lineno, colno, error) {
