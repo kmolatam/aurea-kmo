@@ -3058,6 +3058,83 @@ app.get('/api/admin/data', requireLogin, (req, res) => {
   res.json({ ok: true, ...db, staffStats: computeStaffStats(db) });
 });
 
+app.get('/api/admin/legacy-data', requireLogin, (req, res) => {
+  const db = readDb();
+  const activeSessions = (db.tableSessions || []).filter(session => session.status === 'active');
+  const activeSessionIds = new Set(activeSessions.map(session => session.id).filter(Boolean));
+  const activeTableIds = new Set(activeSessions.map(session => session.tableId).filter(Boolean));
+  const openOrders = (db.orders || [])
+    .filter(order => (
+      order.status !== 'cancelled'
+      && order.closedWithTable !== true
+      && (activeTableIds.has(order.tableId) || (order.sessionId && activeSessionIds.has(order.sessionId)))
+    ))
+    .slice(0, 300)
+    .map(order => ({
+      id: order.id,
+      tableId: order.tableId,
+      tableName: order.tableName,
+      sessionId: order.sessionId || '',
+      status: order.status,
+      items: (order.items || []).map(item => ({
+        itemId: item.itemId || '',
+        name: item.name || 'Producto',
+        qty: item.qty || item.quantity || 0,
+        quantity: item.quantity || item.qty || 0,
+        price: item.price || 0,
+        subtotal: item.subtotal || 0
+      }))
+    }));
+
+  res.json({
+    ok: true,
+    restaurant: {
+      tipsEnabled: db.restaurant?.tipsEnabled !== false
+    },
+    tables: (db.tables || []).map(table => ({
+      id: table.id,
+      name: table.name,
+      active: table.active !== false
+    })),
+    tableSessions: activeSessions.map(session => ({
+      id: session.id,
+      tableId: session.tableId,
+      tableName: session.tableName,
+      status: session.status,
+      customerName: session.customerName || '',
+      assignedStaffId: session.assignedStaffId || '',
+      assignedStaffName: session.assignedStaffName || '',
+      paymentId: session.paymentId || '',
+      createdAt: session.createdAt || ''
+    })),
+    payments: (db.payments || [])
+      .filter(payment => payment.status !== 'cancelled' && (activeTableIds.has(payment.tableId) || (payment.sessionId && activeSessionIds.has(payment.sessionId))))
+      .map(payment => ({
+        id: payment.id,
+        tableId: payment.tableId,
+        sessionId: payment.sessionId || '',
+        status: payment.status,
+        discountPercent: payment.discountPercent || 0,
+        discountAmount: payment.discountAmount || 0,
+        discountReason: payment.discountReason || '',
+        totalDue: payment.totalDue || 0,
+        tipAmount: payment.tipAmount || 0,
+        method: payment.method || 'pending'
+      })),
+    orders: openOrders,
+    menuItems: (db.menuItems || [])
+      .filter(item => item.available !== false)
+      .map(item => ({
+        id: item.id,
+        name: item.name,
+        price: item.price || 0,
+        available: item.available !== false,
+        categoryId: item.categoryId || '',
+        kitchenStation: item.kitchenStation || ''
+      }))
+  });
+});
+
 app.put('/api/admin/restaurant', requireLogin, (req, res) => {
   const db = readDb();
   const operationModes = ['alerts', 'orders', 'commands', 'pos_layer'];

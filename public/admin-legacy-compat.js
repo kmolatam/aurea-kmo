@@ -7,6 +7,7 @@
   var legacyPaymentTableId = '';
   var legacyComplimentaryTableId = '';
   var legacyPaymentTotal = 0;
+  var legacyPaymentTotalKnown = false;
 
   function log(message, detail) {
     var entry = {
@@ -155,6 +156,9 @@
     xhr.open(method, url, true);
     xhr.withCredentials = true;
     xhr.setRequestHeader('Content-Type', 'application/json');
+    try {
+      xhr.timeout = 6500;
+    } catch (ignored) {}
     xhr.onreadystatechange = function () {
       var data;
       if (xhr.readyState !== 4) return;
@@ -172,26 +176,70 @@
     xhr.onerror = function () {
       onError(new Error('Error de red'));
     };
+    xhr.ontimeout = function () {
+      onError(new Error('Tiempo agotado'));
+    };
     xhr.send(payload ? JSON.stringify(payload) : null);
   }
 
-  function loadAdminData(callback) {
+  function loadAdminData(callback, onError) {
     if (legacyDb) {
       callback(legacyDb);
       return;
     }
     visibleLog('cargando datos admin');
-    xhrJson('GET', '/api/admin/data?legacy=' + new Date().getTime(), null, function (data) {
+    xhrJson('GET', '/api/admin/legacy-data?ts=' + new Date().getTime(), null, function (data) {
       legacyDb = data;
       callback(legacyDb);
     }, function (error) {
-      visibleLog('error cargando datos: ' + error.message);
+      if (onError) onError(error);
+      else visibleLog('error cargando datos: ' + error.message);
     });
   }
 
-  function refreshAdminData(callback) {
+  function refreshAdminData(callback, onError) {
     legacyDb = null;
-    loadAdminData(callback || function () {});
+    loadAdminData(callback || function () {}, onError);
+  }
+
+  function emptyTotals() {
+    return {
+      table: null,
+      session: null,
+      payment: null,
+      lines: [],
+      subtotal: 0,
+      discountPercent: 0,
+      discountAmount: 0,
+      total: 0
+    };
+  }
+
+  function safeBillTotalsForTable(tableId) {
+    if (!legacyDb) return emptyTotals();
+    try {
+      return billTotalsForTable(legacyDb, tableId) || emptyTotals();
+    } catch (error) {
+      log('totals-error', error && error.message ? error.message : String(error));
+      return emptyTotals();
+    }
+  }
+
+  function parentWithClass(node, className) {
+    while (node && node !== document) {
+      if (node.className && (' ' + node.className + ' ').indexOf(' ' + className + ' ') !== -1) return node;
+      node = node.parentNode;
+    }
+    return null;
+  }
+
+  function tableLabelFromButton(button, fallback) {
+    var card = parentWithClass(button, 'item');
+    var title = null;
+    if (card && card.getElementsByClassName) {
+      title = card.getElementsByClassName('item-title')[0];
+    }
+    return (title && (title.innerText || title.textContent)) || fallback || 'Mesa';
   }
 
   function tableById(db, tableId) {
@@ -265,7 +313,8 @@
   }
 
   function renderDiscountPreviewLegacy() {
-    var totals = billTotalsForTable(legacyDb, legacyDiscountTableId);
+    var totals = safeBillTotalsForTable(legacyDiscountTableId);
+    var hasTotals = legacyDb && totals.subtotal > 0;
     var percent = toNumber(byId('adminDiscountPercent') && byId('adminDiscountPercent').value);
     var valid = percent >= 0 && percent <= 100;
     var amount = valid ? Math.min(totals.subtotal, totals.subtotal * (percent / 100)) : 0;
@@ -280,39 +329,43 @@
     if (preview) {
       preview.innerHTML = '<div class="item"><div class="item-main">'
         + '<div class="item-title">Vista previa</div>'
-        + '<div class="item-meta">Subtotal: <strong>' + money(totals.subtotal) + '</strong></div>'
-        + '<div class="item-meta">Descuento ' + (valid ? percent : 0) + '%: <strong>-' + money(amount) + '</strong></div>'
-        + '<div class="item-meta">Total final: <strong>' + money(total) + '</strong></div>'
+        + (hasTotals
+          ? '<div class="item-meta">Subtotal: <strong>' + money(totals.subtotal) + '</strong></div>'
+            + '<div class="item-meta">Descuento ' + (valid ? percent : 0) + '%: <strong>-' + money(amount) + '</strong></div>'
+            + '<div class="item-meta">Total final: <strong>' + money(total) + '</strong></div>'
+          : '<div class="item-meta">El servidor calculara subtotal, descuento y total al aplicar.</div>')
         + (!valid ? '<div class="item-meta" style="color:#ffb4b4;">Usa un porcentaje entre 0 y 100.</div>' : '')
         + (full && !reason ? '<div class="item-meta" style="color:#ffb4b4;">Motivo obligatorio para descuento total.</div>' : '')
         + '</div></div>';
     }
   }
 
-  function openDiscountLegacy(tableId) {
+  function openDiscountLegacy(tableId, button) {
     visibleLog('abriendo descuento legacy');
+    legacyDiscountTableId = tableId;
+    setText('adminDiscountTableName', tableLabelFromButton(button, 'Mesa') + ' - Caja/Admin');
+    setValue('adminDiscountPercent', '0');
+    setValue('adminDiscountReason', '');
+    renderDiscountPreviewLegacy();
+    showModal('adminDiscountModal');
     refreshAdminData(function (db) {
       var totals = billTotalsForTable(db, tableId);
-      if (!totals.subtotal) {
-        visibleLog('Esa mesa aun no tiene productos');
-        return;
-      }
-      legacyDiscountTableId = tableId;
       setText('adminDiscountTableName', ((totals.session && totals.session.tableName) || (totals.table && totals.table.name) || 'Mesa') + ' - Caja/Admin');
-      setValue('adminDiscountPercent', String(totals.discountPercent || 0));
+      if (byId('adminDiscountPercent') && (byId('adminDiscountPercent').value === '' || byId('adminDiscountPercent').value === '0')) {
+        setValue('adminDiscountPercent', String(totals.discountPercent || 0));
+      }
       setValue('adminDiscountReason', totals.payment && totals.payment.discountReason ? totals.payment.discountReason : '');
       renderDiscountPreviewLegacy();
-      showModal('adminDiscountModal');
+    }, function (error) {
+      visibleLog('form descuento listo; datos no cargaron: ' + error.message);
     });
   }
 
   function submitDiscountLegacy() {
-    var totals = billTotalsForTable(legacyDb, legacyDiscountTableId);
     var percent = toNumber(byId('adminDiscountPercent') && byId('adminDiscountPercent').value);
     var full = percent >= 100;
     var reason = byId('adminDiscountReason') ? byId('adminDiscountReason').value : '';
-    var discountAmount = Math.min(totals.subtotal, totals.subtotal * (percent / 100));
-    var total = Math.max(0, totals.subtotal - discountAmount);
+    var payload;
     if (percent < 0 || percent > 100) {
       visibleLog('Descuento invalido');
       return;
@@ -322,14 +375,15 @@
       return;
     }
     visibleLog('enviando request descuento');
-    xhrJson('POST', '/api/admin/tables/' + legacyDiscountTableId + '/payment', {
+    payload = {
       method: full ? 'courtesy' : 'pending',
       authorize: false,
       closeTable: false,
       discountPercent: percent,
-      discountReason: reason,
-      amountPaid: full ? 0 : total
-    }, function () {
+      discountReason: reason
+    };
+    if (full) payload.amountPaid = 0;
+    xhrJson('POST', '/api/admin/tables/' + legacyDiscountTableId + '/payment', payload, function () {
       visibleLog('respuesta backend descuento OK');
       hideModal('adminDiscountModal');
       refreshAdminData(function () {
@@ -340,8 +394,19 @@
     });
   }
 
-  function openComplimentaryLegacy(tableId) {
+  function openComplimentaryLegacy(tableId, button) {
     visibleLog('abriendo cortesia legacy');
+    legacyComplimentaryTableId = tableId;
+    setText('adminCompTableName', tableLabelFromButton(button, 'Mesa') + ' - Caja/Admin');
+    setValue('adminCompQty', '1');
+    setValue('adminCompReason', '');
+    var loadingSelect = byId('adminCompItemSelect');
+    if (loadingSelect) {
+      loadingSelect.innerHTML = '<option value="">Cargando productos...</option>';
+      loadingSelect.disabled = true;
+    }
+    if (byId('adminComplimentarySubmitBtn')) byId('adminComplimentarySubmitBtn').disabled = true;
+    showModal('adminComplimentaryModal');
     refreshAdminData(function (db) {
       var totals = billTotalsForTable(db, tableId);
       var products = [];
@@ -353,7 +418,6 @@
         visibleLog('No hay productos disponibles');
         return;
       }
-      legacyComplimentaryTableId = tableId;
       setText('adminCompTableName', ((totals.session && totals.session.tableName) || (totals.table && totals.table.name) || 'Mesa') + ' - Caja/Admin');
       var select = byId('adminCompItemSelect');
       if (select) {
@@ -364,10 +428,18 @@
           option.text = (products[j].name || 'Producto') + ' - ' + money(products[j].price || 0);
           select.appendChild(option);
         }
+        select.disabled = false;
       }
+      if (byId('adminComplimentarySubmitBtn')) byId('adminComplimentarySubmitBtn').disabled = false;
       setValue('adminCompQty', '1');
       setValue('adminCompReason', '');
-      showModal('adminComplimentaryModal');
+    }, function (error) {
+      var select = byId('adminCompItemSelect');
+      if (select) {
+        select.innerHTML = '<option value="">No se pudieron cargar productos</option>';
+        select.disabled = true;
+      }
+      visibleLog('error cargando productos: ' + error.message);
     });
   }
 
@@ -403,6 +475,22 @@
     var method = methodEl ? methodEl.value : 'cash';
     var received = toNumber(receivedEl && receivedEl.value);
     var total = legacyPaymentTotal;
+    if (!legacyPaymentTotalKnown) {
+      var submitUnknown = byId('adminPaymentSubmitBtn');
+      var tipRowUnknown = byId('adminPaymentTipRow');
+      if (tipRowUnknown) tipRowUnknown.style.display = 'none';
+      if (receivedEl) receivedEl.disabled = false;
+      if (submitUnknown) submitUnknown.disabled = false;
+      var previewUnknown = byId('adminPaymentPreview');
+      if (previewUnknown) {
+        previewUnknown.innerHTML = '<div class="item"><div class="item-main">'
+          + '<div class="item-title">Resumen de pago</div>'
+          + '<div class="item-meta">Captura el monto recibido. El servidor validara el total real al confirmar.</div>'
+          + '<div class="item-meta">Recibido: <strong>' + money(received) + '</strong></div>'
+          + '</div></div>';
+      }
+      return;
+    }
     if (total <= 0) {
       method = 'courtesy';
       received = 0;
@@ -439,16 +527,27 @@
     }
   }
 
-  function openPaymentLegacy(tableId) {
+  function openPaymentLegacy(tableId, button) {
     visibleLog('abriendo pago legacy');
+    legacyPaymentTableId = tableId;
+    legacyPaymentTotal = 0;
+    legacyPaymentTotalKnown = false;
+    setText('adminPaymentTableName', tableLabelFromButton(button, 'Mesa') + ' - Caja/Admin');
+    setText('adminPaymentTotal', 'Validando...');
+    setValue('adminPaymentMethod', 'cash');
+    setValue('adminPaymentReceived', '');
+    setChecked('adminPaymentTipFromChange', false);
+    setValue('adminPaymentNote', '');
+    renderPaymentPreviewLegacy();
+    showModal('adminPaymentModal');
     refreshAdminData(function (db) {
       var totals = billTotalsForTable(db, tableId);
       if (!totals.lines.length) {
-        visibleLog('Esa mesa aun no tiene productos');
+        visibleLog('No se encontraron productos en datos ligeros; el backend validara');
         return;
       }
-      legacyPaymentTableId = tableId;
       legacyPaymentTotal = totals.total;
+      legacyPaymentTotalKnown = true;
       setText('adminPaymentTableName', ((totals.session && totals.session.tableName) || (totals.table && totals.table.name) || 'Mesa') + ' - Caja/Admin');
       setText('adminPaymentTotal', money(totals.total));
       setValue('adminPaymentMethod', totals.total <= 0 ? 'courtesy' : 'cash');
@@ -456,7 +555,9 @@
       setChecked('adminPaymentTipFromChange', false);
       setValue('adminPaymentNote', '');
       renderPaymentPreviewLegacy();
-      showModal('adminPaymentModal');
+    }, function (error) {
+      setText('adminPaymentTotal', 'Servidor validara');
+      visibleLog('form pago listo; datos no cargaron: ' + error.message);
     });
   }
 
@@ -464,13 +565,13 @@
     var method = byId('adminPaymentMethod') ? byId('adminPaymentMethod').value : 'cash';
     var received = toNumber(byId('adminPaymentReceived') && byId('adminPaymentReceived').value);
     var total = legacyPaymentTotal;
-    if (total <= 0) {
+    if (legacyPaymentTotalKnown && total <= 0) {
       method = 'courtesy';
       received = 0;
     }
-    var useTip = byId('adminPaymentTipFromChange') && byId('adminPaymentTipFromChange').checked && total > 0;
+    var useTip = legacyPaymentTotalKnown && byId('adminPaymentTipFromChange') && byId('adminPaymentTipFromChange').checked && total > 0;
     var tipAmount = useTip ? Math.max(0, received - total) : 0;
-    if (received + 0.001 < total) {
+    if (legacyPaymentTotalKnown && received + 0.001 < total) {
       visibleLog('Monto insuficiente');
       return;
     }
@@ -562,9 +663,9 @@
     var tableId = button && button.getAttribute ? button.getAttribute('data-table-id') : '';
     var actions = window.AureaAdminActions || {};
     log('action:' + action, tableId || '');
-    if (action === 'open-payment') return openPaymentLegacy(tableId);
-    if (action === 'open-discount') return openDiscountLegacy(tableId);
-    if (action === 'open-complimentary') return openComplimentaryLegacy(tableId);
+    if (action === 'open-payment') return openPaymentLegacy(tableId, button);
+    if (action === 'open-discount') return openDiscountLegacy(tableId, button);
+    if (action === 'open-complimentary') return openComplimentaryLegacy(tableId, button);
     if (action === 'submit-payment') return submitPaymentLegacy();
     if (action === 'submit-discount') return submitDiscountLegacy();
     if (action === 'submit-complimentary') return submitComplimentaryLegacy();
