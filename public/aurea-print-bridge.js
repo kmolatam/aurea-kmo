@@ -174,14 +174,16 @@
     lines.push(line(width));
     lines.push(row('TOTAL CONSUMO', money(payload.total || 0), width));
     const suggestedTips = Array.isArray(payload.suggestedTips) ? payload.suggestedTips : [];
+    const optionalTipNote = 'La propina es opcional y no está incluida en el total.';
     if (suggestedTips.length) {
       lines.push(line(width));
-      lines.push('Propina sugerida (opcional)');
+      lines.push('Propina sugerida: 10% / 15% / 20%');
       suggestedTips.forEach(tip => {
         lines.push(row(`${tip.percent || 0}%`, money(tip.amount || 0), width));
       });
+      lines.push(...wrapText(optionalTipNote, width));
     }
-    if (payload.note) {
+    if (payload.note && cleanText(payload.note) !== cleanText(optionalTipNote)) {
       lines.push('');
       lines.push(...wrapText(payload.note, width));
     }

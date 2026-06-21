@@ -5,7 +5,7 @@ let tablesSignature = '';
 let crmFilter = 'all';
 let pendingLogoDataUrl = undefined;
 const qrCache = new Map();
-const ADMIN_JS_VERSION = '0.9.11-pos-ready';
+const ADMIN_JS_VERSION = '0.9.20-mesero-caja-hotfix';
 
 function money(value) {
   return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(value || 0);
@@ -652,6 +652,82 @@ function printAdminOrderTicket(orderId) {
   `);
 }
 
+function activeAdminOrdersForTable(tableId) {
+  const session = (db.tableSessions || []).find(item => item.tableId === tableId && item.status === 'active');
+  if (!session) return [];
+  return (db.orders || []).filter(order => (
+    order.tableId === tableId
+    && order.status !== 'cancelled'
+    && order.closedWithTable !== true
+    && (!order.sessionId || order.sessionId === session.id)
+  ));
+}
+
+function adminBillLinesForTable(tableId) {
+  const lines = [];
+  for (const order of activeAdminOrdersForTable(tableId)) {
+    (order.items || []).forEach((item, itemIndex) => {
+      if (item.cancelled) return;
+      lines.push({
+        orderId: order.id,
+        itemIndex,
+        commandNumber: order.commandNumber || '',
+        name: item.name || 'Producto',
+        qty: Number(item.qty || 0),
+        price: Number(item.price || 0),
+        subtotal: Number(item.subtotal !== undefined ? item.subtotal : Number(item.qty || 0) * Number(item.price || 0)),
+        note: item.note || '',
+        modifierName: item.modifierName || '',
+        modifierGroupName: item.modifierGroupName || 'Opción',
+        dinerName: ''
+      });
+    });
+  }
+  return lines;
+}
+
+function suggestedTipAmount(total, percent) {
+  return Math.round((Number(total || 0) * Number(percent || 0) / 100 + Number.EPSILON) * 100) / 100;
+}
+
+function printAdminBillDataBridge({ tableName, lines, total, suggestedTips, note }) {
+  const bridge = window.AureaPrintBridge;
+  if (!bridge?.shouldUseBridge?.() || !bridge.buildBillTicketText) return false;
+  const ticketText = bridge.buildBillTicketText({ tableName, items: lines, total, suggestedTips, note }, {
+    restaurantName: db?.restaurant?.name || 'AUREA',
+    ticketWidthMm: ticketWidthMm(),
+    footer: 'Gracias por su preferencia'
+  });
+  return bridge.printTextIfBridge(ticketText, printBrandOptions());
+}
+
+function printAdminBillTicketForTable(tableId) {
+  const session = (db.tableSessions || []).find(item => item.tableId === tableId && item.status === 'active');
+  const table = (db.tables || []).find(item => item.id === tableId);
+  const lines = adminBillLinesForTable(tableId);
+  if (!lines.length) return toast('Esa mesa aún no tiene productos para imprimir');
+  const tableName = session?.tableName || table?.name || 'Mesa';
+  const total = lines.reduce((sum, line) => sum + Number(line.subtotal || 0), 0);
+  const suggestedTips = [10, 15, 20].map(percent => ({
+    percent,
+    amount: suggestedTipAmount(total, percent),
+    total: total + suggestedTipAmount(total, percent)
+  }));
+  const note = 'La propina es opcional y no está incluida en el total.';
+  if (printAdminBillDataBridge({ tableName, lines, total, suggestedTips, note })) return;
+  const items = lines.map(line => `
+    <div class="item"><div class="row"><span>${escapeHtml(line.qty)}× ${escapeHtml(line.name)}</span><strong>${money(line.subtotal)}</strong></div>${line.modifierName ? `<small>${escapeHtml(line.modifierGroupName || 'Opción')}: ${escapeHtml(line.modifierName)}</small>` : ''}${line.note ? `<small>Nota: ${escapeHtml(line.note)}</small>` : ''}</div>
+  `).join('');
+  const tipRows = suggestedTips.map(tip => `<div class="row"><span>Propina sugerida ${tip.percent}%</span><span>${money(tip.amount)}</span></div>`).join('');
+  printHtmlDocument(`Ticket ${tableName}`, `
+    <div class="center"><strong>TICKET OFICIAL</strong><br><span>${escapeHtml(tableName)}</span><br><span class="muted">${dateTime(new Date())}</span></div>
+    <div class="line"></div>${items}
+    <div class="line"></div><div class="row total"><span>TOTAL CONSUMO</span><span>${money(total)}</span></div>
+    <div class="line"></div><div><strong>Propina sugerida: 10% / 15% / 20%</strong></div>${tipRows}
+    <div class="muted" style="margin-top:6px">${note}</div>
+  `, { footer: 'Gracias por su preferencia' });
+}
+
 function selectedFinanceDate() {
   const input = document.getElementById('financeDate');
   if (!input) return todayBusinessDate();
@@ -964,6 +1040,7 @@ function renderActiveSessions() {
       <div class="inline-actions end">
         ${session.assignedStaffName ? '' : (db.staff || []).filter(s => s.active !== false).map(member => `<button class="btn small secondary" onclick="adminAssignTable('${session.tableId}', '${member.id}')">Asignar a ${escapeHtml(member.name)}</button>`).join('\n')}
         ${session.paymentStatus === 'paid' ? '<span class="pill">Pagada</span>' : ''}
+        <button class="btn small secondary" onclick="printAdminBillTicketForTable('${session.tableId}')">Imprimir ticket</button>
         <button class="btn small success" onclick="adminCloseTable('${session.tableId}')">Cerrar mesa</button>
       </div>
     </div>
@@ -1921,8 +1998,8 @@ function releaseNotesFor(panel = 'panel') {
   if (panel === 'staff') {
     return [
       'Nuevo pedido: ahora eliges categoría → platillo → cantidad/nota.',
-      'Generar cuenta: revisa total de mesa y cuentas separadas antes de cobrar.',
-      'El pago capturado por mesero queda pendiente hasta autorización de admin.'
+      'Mesero captura pedidos y envía comandas a cocina/barra.',
+      'Cuenta, ticket, pago y cierre quedan en Caja/Admin.'
     ];
   }
   if (panel === 'kitchen') {
@@ -1934,7 +2011,7 @@ function releaseNotesFor(panel = 'panel') {
   }
   return [
     'Corte diario con pagos, egresos y cierre de caja.',
-    'Pagos de mesero requieren autorización de admin/capitán.',
+    'Caja/Admin concentra ticket, pago y cierre de cuenta.',
     'Cocina por barras, modificadores e impresión térmica básica.'
   ];
 }
@@ -1976,9 +2053,9 @@ function tourStepsFor(panel = 'panel') {
   if (panel === 'staff') {
     return [
       { selector: '.client-hero', title: 'Panel de mesero', text: 'Aquí entras a Nuevo pedido, Cocina, Tour y Ayuda.' },
-      { selector: '#staffSessions', title: 'Mesas activas', text: 'Toma tu mesa y trabaja solo con las mesas asignadas a ti.' },
+      { selector: '#staffSessions', title: 'Mesas asignadas', text: 'El mesero trabaja solo con las mesas asignadas por Caja/Admin.' },
       { selector: '#staffSessions', title: 'Nuevo pedido', text: 'En una mesa activa toca Nuevo pedido: eliges categoría, platillo, cantidad y nota.' },
-      { selector: '#staffSessions', title: 'Generar cuenta', text: 'Cuando pidan la cuenta, toca Generar cuenta. Verás total y cuentas separadas.' },
+      { selector: '#staffSessions', title: 'Mesas asignadas', text: 'Desde aquí el mesero agrega pedidos. Cuenta, ticket y pago se hacen en Caja/Admin.' },
       { selector: '#staffAlerts', title: 'Alertas', text: 'Aquí aparecen solicitudes del cliente y avisos importantes.' }
     ];
   }

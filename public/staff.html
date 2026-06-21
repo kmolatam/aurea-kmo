@@ -57,7 +57,7 @@
       <div class="section-head compact-head">
         <div>
           <h2 style="margin:0;">POS rápido</h2>
-          <p class="muted" style="margin:4px 0 0; line-height:1.35;">Pedido manual, cuenta y ticket desde una sola pantalla.</p>
+          <p class="muted" style="margin:4px 0 0; line-height:1.35;">Pedido manual y envío de comanda desde una sola pantalla.</p>
         </div>
         <span class="pill">terminal</span>
       </div>
@@ -66,10 +66,8 @@
           <select id="staffPosTableSelect"></select>
         </label>
         <button class="btn success pos-big-btn" type="button" onclick="openPosManualOrder()">+ Pedido manual</button>
-        <button class="btn secondary pos-big-btn" type="button" onclick="openPosBill()">Generar cuenta</button>
-        <button class="btn pos-big-btn" type="button" onclick="printPosBill()">Imprimir ticket</button>
       </div>
-      <div class="muted pos-help">Tip: primero elige mesa, luego crea pedido. Para cobrar, usa Generar cuenta o Imprimir ticket.</div>
+      <div class="muted pos-help">Tip: primero elige mesa, luego crea pedido. Cuenta, ticket y pago se hacen en Caja/Admin.</div>
     </section>
 
     <section id="notificationPrompt" class="card notification-card" style="display:none; margin-bottom:14px;">
@@ -156,71 +154,11 @@
 
 
 
-  <div id="staffBillModal" class="modal-backdrop">
-    <div class="modal">
-      <div class="section-head">
-        <div>
-          <h2 style="margin:0;">Generar cuenta</h2>
-          <p id="staffBillTableName" class="muted" style="margin:6px 0 0;">Mesa</p>
-        </div>
-        <button class="btn ghost small" onclick="closeStaffBillModal()">Cerrar</button>
-      </div>
-      <div class="bill-total-box">
-        <span>Total de la mesa</span>
-        <strong id="staffBillTotal">$0</strong>
-      </div>
-      <div id="staffBillList" class="list"></div>
-      <div class="inline-actions end" style="margin-top:16px;">
-        <button class="btn ghost" onclick="closeStaffBillModal()">Regresar</button>
-        <button class="btn secondary" onclick="printStaffBillTicket()">Imprimir ticket</button>
-        <button class="btn success" onclick="goToPaymentFromBill()">Capturar pago</button>
-      </div>
-    </div>
-  </div>
+  <div id="staffBillModal" class="modal-backdrop" style="display:none;"></div>
+  <div id="staffPaymentModal" class="modal-backdrop" style="display:none;"></div>
 
 
-  <div id="staffPaymentModal" class="modal-backdrop">
-    <div class="modal">
-      <div class="section-head">
-        <div>
-          <h2 style="margin:0;">Capturar pago</h2>
-          <p id="staffPaymentTableName" class="muted" style="margin:6px 0 0;">Mesa</p>
-        </div>
-        <button class="btn ghost small" onclick="closeStaffPaymentModal()">Cerrar</button>
-      </div>
-      <p class="muted" style="line-height:1.5; margin-top:0;">El mesero puede registrar el pago y cerrar la mesa sin autorización de admin.</p>
-      <div class="grid">
-        <label class="col-6">Método de pago
-          <select id="staffPaymentMethod">
-            <option value="cash">Efectivo</option>
-            <option value="card">Tarjeta</option>
-            <option value="transfer">Transferencia</option>
-            <option value="mixed">Mixto</option>
-            <option value="pending">Por definir</option>
-          </select>
-        </label>
-        <label class="col-6">Total cobrado
-          <input id="staffPaymentAmount" class="input" type="number" min="0" step="0.01" placeholder="0" />
-        </label>
-        <label class="col-6">Propina
-          <input id="staffPaymentTip" class="input" type="number" min="0" step="0.01" placeholder="0" />
-        </label>
-        <label class="col-6">Descuento
-          <input id="staffPaymentDiscount" class="input" type="number" min="0" step="0.01" placeholder="0" />
-        </label>
-        <label class="col-12">Nota
-          <input id="staffPaymentNote" class="input" placeholder="Ej. pagó con billete de $500, transferencia pendiente..." />
-        </label>
-      </div>
-      <div class="inline-actions end" style="margin-top:16px;">
-        <button class="btn ghost" onclick="closeStaffPaymentModal()">Cancelar</button>
-        <button class="btn success" onclick="submitStaffPayment()">Registrar pago</button>
-      </div>
-    </div>
-  </div>
-
-
-  <script src="/aurea-print-bridge.js?v=0.9.19"></script>
-  <script src="/staff.js?v=0.9.19"></script>
+  <script src="/aurea-print-bridge.js?v=0.9.20"></script>
+  <script src="/staff.js?v=0.9.20"></script>
 </body>
 </html>

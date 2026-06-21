@@ -7,11 +7,12 @@ let currentStaffOrderDraft = [];
 let currentStaffCategoryId = '';
 let currentStaffEditingItemId = '';
 let guidedTourState = null;
-const STAFF_JS_VERSION = '0.9.19-ticket-unificado-emergencia';
+const STAFF_JS_VERSION = '0.9.20-mesero-caja-hotfix';
 let notificationsBaselineReady = false;
 const seenAlertIds = new Set();
 const seenOrderIds = new Set();
 const STAFF_AUTO_BILL_PRINT_KEY = 'aurea-staff-auto-bill-print-v1';
+const STAFF_FORBIDDEN_MESSAGE = 'Acción reservada para Caja/Admin';
 
 function isStaffPosMode() {
   try {
@@ -263,32 +264,7 @@ function printStaffOrderDataBridge(order) {
 }
 
 function printStaffOrderTicket(orderId) {
-  const order = (staffDb.orders || []).find(item => item.id === orderId);
-  if (!order) return toast('Comanda no encontrada');
-  const items = (order.items || []).map(item => `
-    <div class="item"><div class="row"><strong>${escapeHtml(item.qty)}× ${escapeHtml(item.name)}</strong><span>${money(item.subtotal)}</span></div>${item.modifierName ? `<small>${escapeHtml(item.modifierGroupName || 'Opción')}: ${escapeHtml(item.modifierName)}</small>` : ''}${item.note ? `<small>Nota: ${escapeHtml(item.note)}</small>` : ''}</div>
-  `).join('');
-  const bodyHtml = `
-    <div class="center"><strong>COMANDA #${escapeHtml(order.commandNumber || '-')}</strong><br><span>${escapeHtml(order.tableName || 'Mesa')}</span><br><span class="muted">${dateTime(order.createdAt)}</span></div>
-    <div class="line"></div>${items}
-    ${order.note ? `<div class="line"></div><div><strong>Nota:</strong> ${escapeHtml(order.note)}</div>` : ''}
-    <div class="line"></div><div class="row total"><span>Total</span><span>${money(order.total)}</span></div>
-  `;
-  const bridgeText = window.AureaPrintBridge?.buildOrderTicketText
-    ? window.AureaPrintBridge.buildOrderTicketText(order, {
-        restaurantName: staffDb?.restaurant?.name || 'AUREA',
-        ticketWidthMm: ticketWidthMm(),
-        showPrices: true,
-        footer: 'Ticket de producción'
-      })
-    : '';
-  printHtmlDocument(`Comanda #${order.commandNumber || ''}`, bodyHtml, {
-    footer: 'Ticket de producción',
-    showLogo: false,
-    bridgeText,
-    feedDots: 300,
-    bottomGapMm: 24
-  });
+  return toast(STAFF_FORBIDDEN_MESSAGE);
 }
 
 function suggestedTipAmount(total, percent) {
@@ -297,43 +273,11 @@ function suggestedTipAmount(total, percent) {
 
 function printStaffBillTicketForTable(tableId) {
   currentPaymentTableId = tableId;
-  printStaffBillTicket();
+  return toast(STAFF_FORBIDDEN_MESSAGE);
 }
 
 function printStaffBillTicket() {
-  if (!currentPaymentTableId) return toast('Abre una cuenta primero');
-  const session = (staffDb.tableSessions || []).find(item => item.tableId === currentPaymentTableId && item.status === 'active');
-  const table = (staffDb.tables || []).find(item => item.id === currentPaymentTableId);
-  const lines = billLinesForTable(currentPaymentTableId);
-  const total = lines.reduce((sum, line) => sum + Number(line.subtotal || 0), 0);
-  const tableName = session?.tableName || table?.name || 'Mesa';
-  const suggestedTips = [10, 15, 20].map(percent => ({ percent, amount: suggestedTipAmount(total, percent), total: total + suggestedTipAmount(total, percent) }));
-  const note = 'Propina sugerida opcional. El total de consumo no incluye propina.';
-  const items = lines.map(line => `
-    <div class="item"><div class="row"><span>${escapeHtml(line.qty)}× ${escapeHtml(line.name)}</span><strong>${money(line.subtotal)}</strong></div>${line.modifierName ? `<small>${escapeHtml(line.modifierGroupName || 'Opción')}: ${escapeHtml(line.modifierName)}</small>` : ''}${line.note ? `<small>Nota: ${escapeHtml(line.note)}</small>` : ''}</div>
-  `).join('');
-  const tipRows = suggestedTips.map(tip => `<div class="row"><span>Propina sugerida ${tip.percent}%</span><span>${money(tip.amount)}</span></div>`).join('');
-  const bodyHtml = `
-    <div class="center"><strong>TICKET OFICIAL</strong><br><span>${escapeHtml(tableName)}</span><br><span class="muted">${dateTime(new Date())}</span></div>
-    <div class="line"></div>${items || '<div class="center muted">Sin productos</div>'}
-    <div class="line"></div><div class="row total"><span>TOTAL CONSUMO</span><span>${money(total)}</span></div>
-    <div class="line"></div><div><strong>Propina sugerida (opcional)</strong></div>${tipRows}
-    <div class="muted" style="margin-top:6px">${note}</div>
-  `;
-  const bridgeText = window.AureaPrintBridge?.buildBillTicketText
-    ? window.AureaPrintBridge.buildBillTicketText({ tableName, items: lines, total, suggestedTips, note }, {
-        restaurantName: staffDb?.restaurant?.name || 'AUREA',
-        ticketWidthMm: ticketWidthMm(),
-        footer: 'Gracias por su preferencia'
-      })
-    : '';
-  printHtmlDocument(`Ticket ${tableName}`, bodyHtml, {
-    footer: 'Gracias por su preferencia',
-    showLogo: true,
-    bridgeText,
-    feedDots: 320,
-    bottomGapMm: 30
-  });
+  return toast(STAFF_FORBIDDEN_MESSAGE);
 }
 
 async function checkStaffSession() {
@@ -482,21 +426,17 @@ function renderSessions() {
 
   el.innerHTML = sessions.map(session => {
     const mine = session.assignedStaffId === staffId;
-    const paid = session.paymentStatus === 'paid';
     return `
       <div class="item">
         <div class="item-main">
           <div class="item-title">${escapeHtml(session.tableName)} · ${escapeHtml(session.customerName || 'Cliente sin nombre')}</div>
           <div class="item-meta">${session.customerPhone ? `WhatsApp: ${escapeHtml(session.customerPhone)} · ` : ''}${mine ? 'Asignada a ti' : 'Sin asignar'} · ${dateTime(session.createdAt)}</div>
-          ${paid ? '<div style="margin-top:6px;"><span class="pill">Pago registrado</span></div>' : ''}
+          <div class="item-meta" style="margin-top:6px;">Cuenta y pago se gestionan en Caja/Admin.</div>
         </div>
         <div class="inline-actions end">
           ${mine ? `
             <button class="btn small secondary" onclick="openStaffOrderModal('${session.tableId}')">Nuevo pedido</button>
-            <button class="btn small secondary" onclick="openStaffBillModal('${session.tableId}')">Generar cuenta</button>
-            <button class="btn small" onclick="printStaffBillTicketForTable('${session.tableId}')">Imprimir ticket</button>
-            ${paid ? `<button class="btn small success" onclick="closeTable('${session.tableId}')">Cerrar mesa</button>` : ''}
-          ` : `<button class="btn small success" onclick="takeTable('${session.tableId}')">Tomar mesa</button>`}
+          ` : '<span class="pill">Caja/Admin asigna mesa</span>'}
         </div>
       </div>
     `;
@@ -515,31 +455,17 @@ function renderStaffStats() {
     <span><strong>${stat.activeOrders}</strong> comandas activas</span>
     <span><strong>${stat.deliveredOrders}</strong> entregadas</span>
     <span><strong>${stat.vipCaptured}</strong> VIP captados</span>
-    <span><strong>${money(stat.totalSales)}</strong> venta registrada</span>
-    <span>Tomar mesa: <strong>${metric(stat.avgTakeMinutes, ' min')}</strong></span>
     <span>Confirmar: <strong>${metric(stat.avgConfirmMinutes, ' min')}</strong></span>
     <span>Entregar: <strong>${metric(stat.avgDeliveryMinutes, ' min')}</strong></span>
   `;
 }
 
 async function takeTable(tableId) {
-  try {
-    await api(`/api/staff/tables/${tableId}/take`, { method: 'POST' });
-    toast('Mesa tomada');
-    await loadStaffData();
-  } catch (error) {
-    toast(error.message);
-  }
+  return toast(STAFF_FORBIDDEN_MESSAGE);
 }
 
 async function releaseTable(tableId) {
-  try {
-    await api(`/api/staff/tables/${tableId}/release`, { method: 'POST' });
-    toast('Mesa liberada');
-    await loadStaffData();
-  } catch (error) {
-    toast(error.message);
-  }
+  return toast(STAFF_FORBIDDEN_MESSAGE);
 }
 
 function staffTableSubtotal(tableId) {
@@ -590,43 +516,11 @@ function groupedBillForTable(tableId) {
 
 function openStaffBillModal(tableId) {
   currentPaymentTableId = tableId;
-  const session = (staffDb.tableSessions || []).find(item => item.tableId === tableId && item.status === 'active');
-  const table = (staffDb.tables || []).find(item => item.id === tableId);
-  const lines = billLinesForTable(tableId);
-  const groups = groupedBillForTable(tableId);
-  const total = lines.reduce((sum, line) => sum + Number(line.subtotal || 0), 0);
-
-  document.getElementById('staffBillTableName').textContent = `${session?.tableName || table?.name || 'Mesa'} · Cuenta generada`;
-  document.getElementById('staffBillTotal').textContent = money(total);
-  document.getElementById('staffBillList').innerHTML = lines.length ? `
-    <div class="bill-lines">
-      ${lines.map(line => `
-        <div class="bill-line">
-          <span>${escapeHtml(line.qty)} × ${escapeHtml(line.name)}${line.modifierName ? ` · ${escapeHtml(line.modifierName)}` : ''}</span>
-          <strong>${money(line.subtotal)}</strong>
-          <button class="btn danger small" type="button" onclick="cancelStaffBillItem('${line.orderId}', ${Number(line.itemIndex || 0)})">Cancelar</button>
-        </div>
-      `).join('')}
-    </div>
-    <div class="item-meta" style="margin-top:12px;">Ticket unificado por mesa completa.</div>
-  ` : '<div class="item"><div>Esta mesa todavía no tiene productos registrados.</div></div>';
-
-  document.getElementById('staffBillModal').classList.add('active');
-  autoPrintStaffBillIfNeeded(tableId);
+  return toast(STAFF_FORBIDDEN_MESSAGE);
 }
 
 function autoPrintStaffBillIfNeeded(tableId) {
-  const key = staffBillPrintKey(tableId);
-  const printed = staffAutoPrintedBills();
-  if (printed.has(key)) return;
-  printed.add(key);
-  saveStaffAutoPrintedBills(printed);
-  setTimeout(() => {
-    if (currentPaymentTableId === tableId) {
-      toast('Imprimiendo ticket de cuenta');
-      printStaffBillTicket();
-    }
-  }, 350);
+  return;
 }
 
 function closeStaffBillModal() {
@@ -634,23 +528,12 @@ function closeStaffBillModal() {
 }
 
 function goToPaymentFromBill() {
-  const tableId = currentPaymentTableId;
-  closeStaffBillModal();
-  openStaffPaymentModal(tableId);
+  return toast(STAFF_FORBIDDEN_MESSAGE);
 }
 
 function openStaffPaymentModal(tableId) {
   currentPaymentTableId = tableId;
-  const session = (staffDb.tableSessions || []).find(item => item.tableId === tableId && item.status === 'active');
-  const table = (staffDb.tables || []).find(item => item.id === tableId);
-  const subtotal = staffTableSubtotal(tableId);
-  document.getElementById('staffPaymentTableName').textContent = `${session?.tableName || table?.name || 'Mesa'} · Total ${money(subtotal)}`;
-  document.getElementById('staffPaymentMethod').value = 'cash';
-  document.getElementById('staffPaymentAmount').value = subtotal ? String(subtotal) : '';
-  document.getElementById('staffPaymentTip').value = '';
-  document.getElementById('staffPaymentDiscount').value = '';
-  document.getElementById('staffPaymentNote').value = '';
-  document.getElementById('staffPaymentModal').classList.add('active');
+  return toast(STAFF_FORBIDDEN_MESSAGE);
 }
 
 function closeStaffPaymentModal() {
@@ -659,35 +542,11 @@ function closeStaffPaymentModal() {
 }
 
 async function submitStaffPayment() {
-  if (!currentPaymentTableId) return;
-  try {
-    await api(`/api/staff/tables/${currentPaymentTableId}/paid`, {
-      method: 'POST',
-      body: JSON.stringify({
-        method: document.getElementById('staffPaymentMethod').value,
-        amountPaid: document.getElementById('staffPaymentAmount').value,
-        tipAmount: document.getElementById('staffPaymentTip').value,
-        discountAmount: document.getElementById('staffPaymentDiscount').value,
-        note: document.getElementById('staffPaymentNote').value
-      })
-    });
-    closeStaffPaymentModal();
-    toast('Pago registrado');
-    await loadStaffData();
-  } catch (error) {
-    toast(error.message);
-  }
+  return toast(STAFF_FORBIDDEN_MESSAGE);
 }
 
 async function closeTable(tableId) {
-  if (!confirm('¿Cerrar mesa? Se limpiarán alertas activas, se guardará historial y la mesa quedará lista para el siguiente cliente.')) return;
-  try {
-    await api(`/api/staff/tables/${tableId}/close`, { method: 'POST', body: JSON.stringify({ markPaid: true }) });
-    toast('Mesa cerrada y guardada en historial');
-    await loadStaffData();
-  } catch (error) {
-    toast(error.message);
-  }
+  return toast(STAFF_FORBIDDEN_MESSAGE);
 }
 
 
@@ -711,8 +570,7 @@ function renderPosQuickPanel() {
   select.innerHTML = tables.length
     ? tables.map(table => {
         const session = (staffDb.tableSessions || []).find(item => item.tableId === table.id && item.status === 'active');
-        const total = staffTableSubtotal(table.id);
-        const label = `${table.name}${session ? ' · activa' : ''}${total ? ` · ${money(total)}` : ''}`;
+        const label = `${table.name}${session ? ' · activa' : ''}`;
         return `<option value="${escapeHtml(table.id)}">${escapeHtml(label)}</option>`;
       }).join('')
     : '<option value="">No hay mesas configuradas</option>';
@@ -726,18 +584,11 @@ function openPosManualOrder() {
 }
 
 function openPosBill() {
-  const tableId = selectedPosTableId();
-  if (!tableId) return toast('Selecciona una mesa');
-  openStaffBillModal(tableId);
+  return toast(STAFF_FORBIDDEN_MESSAGE);
 }
 
 function printPosBill() {
-  const tableId = selectedPosTableId();
-  if (!tableId) return toast('Selecciona una mesa');
-  currentPaymentTableId = tableId;
-  const lines = billLinesForTable(tableId);
-  if (!lines.length) return toast('Esa mesa aún no tiene productos para imprimir');
-  printStaffBillTicket();
+  return toast(STAFF_FORBIDDEN_MESSAGE);
 }
 
 function fillManualTableSelect(selectedId = '') {
@@ -759,7 +610,7 @@ function openManualOrderModal(preselectedTableId = '') {
   if (manualFields) manualFields.style.display = 'grid';
   document.getElementById('staffManualCustomerName').value = '';
   document.getElementById('staffManualCustomerPhone').value = '';
-  document.getElementById('staffOrderTableName').textContent = `Nuevo pedido · tomada por ${staffDb.staff?.name || 'mesero'}`;
+  document.getElementById('staffOrderTableName').textContent = `Nuevo pedido · capturado por ${staffDb.staff?.name || 'mesero'}`;
   document.getElementById('staffOrderNote').value = '';
   document.getElementById('staffOrderModal').classList.add('active');
   renderStaffOrderItems();
@@ -931,7 +782,7 @@ function staffItemEditorHtml(editingItem) {
     <div class="quick-item-editor menu-editor-inline">
       <div>
         <h3>${escapeHtml(editingItem.name)}</h3>
-        <p class="muted">${money(editingItem.price)}${editingItem.description ? ` · ${escapeHtml(editingItem.description)}` : ''}</p>
+        ${editingItem.description ? `<p class="muted">${escapeHtml(editingItem.description)}</p>` : ''}
       </div>
       ${Array.isArray(editingItem.modifiers) && editingItem.modifiers.length ? `
         <div class="modifier-picker">
@@ -1004,7 +855,6 @@ async function renderStaffOrderItems() {
         ${shownItems.map(item => `
           <button type="button" class="menu-pick-card ${draftQtyFor(item.id) ? 'selected' : ''} ${editingItem?.id === item.id ? 'editing' : ''}" onclick="openStaffItemEditor('${escapeHtml(item.id)}')">
             <strong>${escapeHtml(item.name)}</strong>
-            <span>${money(item.price)}</span>
             <small>${escapeHtml(kitchenStationName(item.kitchenStation))}</small>
             ${item.description ? `<small>${escapeHtml(item.description)}</small>` : ''}
             ${draftQtyFor(item.id) ? `<em>${draftQtyFor(item.id)} agregado(s)</em>` : ''}
@@ -1017,7 +867,7 @@ async function renderStaffOrderItems() {
         <span class="wizard-dot">3</span>
         <div>
           <strong>Revisa pedido</strong>
-          <p class="muted">Total estimado: ${money(draftTotal())}</p>
+          <p class="muted">Confirma cantidades, modificadores y notas antes de enviar.</p>
         </div>
       </div>
       <div class="draft-list">
@@ -1025,7 +875,7 @@ async function renderStaffOrderItems() {
           <div class="draft-row">
             <div>
               <strong>${escapeHtml(item.qty)} × ${escapeHtml(item.name)}</strong>
-              <small>${money(Number(item.price || 0) * Number(item.qty || 0))}${item.modifierName ? ` · ${escapeHtml(item.modifierGroupName || 'Opción')}: ${escapeHtml(item.modifierName)}` : ''}${item.note ? ` · ${escapeHtml(item.note)}` : ''}</small>
+              <small>${[item.modifierName ? `${item.modifierGroupName || 'Opción'}: ${item.modifierName}` : '', item.note || ''].filter(Boolean).map(escapeHtml).join(' · ') || 'Sin nota'}</small>
             </div>
             <button type="button" class="btn danger tiny" onclick="removeStaffDraftItem('${escapeHtml(item.localId)}')">Quitar</button>
           </div>
@@ -1089,11 +939,8 @@ function renderAlerts() {
     const bill = alert.billDetails;
     const billDetailsHtml = bill ? `
       <div class="bill-alert-mini">
-        <span>Total: <strong>${money(bill.total)}</strong></span>
-        <span>Propina: <strong>${money(bill.tipAmount)}</strong></span>
-        <span>Pago: <strong>${escapeHtml(bill.paymentMethodLabel || bill.paymentMethod || 'Por definir')}</strong></span>
-        <span>Cuenta: <strong>${escapeHtml(bill.whenLabel || 'ahora')}</strong></span>
-        ${bill.bringTerminal ? '<span>Terminal: <strong>sí</strong></span>' : ''}
+        <span>Cuenta solicitada: <strong>${escapeHtml(bill.whenLabel || 'ahora')}</strong></span>
+        ${bill.bringTerminal ? '<span>Cliente pide terminal</span>' : ''}
       </div>
     ` : '';
     return `
@@ -1106,7 +953,6 @@ function renderAlerts() {
           <div style="margin-top:8px;"><span class="pill">${escapeHtml(statusLabel(alert.status))}</span></div>
         </div>
         <div class="inline-actions end">
-          ${alert.assignedStaffId ? '' : `<button class="btn small secondary" onclick="takeTable('${alert.tableId}')">Tomar mesa</button>`}
           <button class="btn small secondary" onclick="updateAlert('${alert.id}', 'in_progress')">En proceso</button>
           <button class="btn small success" onclick="updateAlert('${alert.id}', 'done')">Listo</button>
         </div>
@@ -1135,22 +981,16 @@ function renderOrders() {
   el.innerHTML = orders.map(order => `
     <div class="item command-card" style="align-items:flex-start;">
       <div class="item-main">
-        <div class="item-title">#${escapeHtml(order.commandNumber || '-')} · ${escapeHtml(order.tableName)} · ${money(order.total)}</div>
+        <div class="item-title">#${escapeHtml(order.commandNumber || '-')} · ${escapeHtml(order.tableName)}</div>
         <div class="item-meta">${dateTime(order.createdAt)} · ${escapeHtml(statusLabel(order.status))}${order.estimatedTime ? ` · Estimado: ${escapeHtml(order.estimatedTime)}` : ''}</div>
         <div style="margin-top:10px; display:grid; gap:4px;">
-          ${order.items.map(item => `<div>${item.qty} × ${escapeHtml(item.name)}${item.modifierName ? ` · <strong>${escapeHtml(item.modifierName)}</strong>` : ''} <span class="item-meta">${money(item.subtotal)}</span></div>`).join('')}
+          ${order.items.map(item => `<div>${item.qty} × ${escapeHtml(item.name)}${item.modifierName ? ` · <strong>${escapeHtml(item.modifierName)}</strong>` : ''}${item.note ? `<div class="item-meta">Nota: ${escapeHtml(item.note)}</div>` : ''}</div>`).join('')}
         </div>
         ${order.note ? `<div class="item-meta" style="margin-top:8px;">Nota: ${escapeHtml(order.note)}</div>` : ''}
         <div class="item-meta" style="margin-top:8px;">Mesero: ${escapeHtml(order.assignedStaffName || 'sin asignar')}</div>
-        ${order.status === 'new' ? `<div style="margin-top:8px;"><span class="pill">Confirmar con tiempo estimado</span></div>${estimateActions(order.id)}` : ''}
       </div>
       <div class="inline-actions end">
-        ${order.assignedStaffId ? '' : `<button class="btn small secondary" onclick="takeTable('${order.tableId}')">Tomar mesa</button>`}
-        <button class="btn small ghost" onclick="printStaffOrderTicket('${order.id}')">Imprimir</button>
-        <button class="btn small secondary" onclick="updateOrder('${order.id}', 'in_progress')">Preparar</button>
-        <button class="btn small secondary" onclick="updateOrder('${order.id}', 'ready')">Listo</button>
-        <button class="btn small success" onclick="updateOrder('${order.id}', 'delivered')">Entregado</button>
-        <button class="btn small danger" onclick="cancelStaffOrder('${order.id}')">Cancelar</button>
+        <span class="pill">Comanda enviada</span>
       </div>
     </div>
   `).join('');
@@ -1162,16 +1002,7 @@ async function updateAlert(id, status) {
 }
 
 async function cancelStaffBillItem(orderId, itemIndex) {
-  if (!confirm('¿Cancelar este producto? Se quitará de cocina y de la cuenta.')) return;
-  try {
-    await api(`/api/staff/orders/${orderId}/items/${itemIndex}`, { method: 'DELETE' });
-    toast('Producto cancelado');
-    const tableId = currentPaymentTableId;
-    await loadStaffData();
-    if (tableId) openStaffBillModal(tableId);
-  } catch (error) {
-    toast(error.message);
-  }
+  return toast(STAFF_FORBIDDEN_MESSAGE);
 }
 
 async function updateOrder(id, status, estimatedTime = undefined) {
@@ -1180,9 +1011,7 @@ async function updateOrder(id, status, estimatedTime = undefined) {
 }
 
 async function cancelStaffOrder(id) {
-  if (!confirm('¿Cancelar esta comanda? Se quitará de cocina y no contará en la cuenta.')) return;
-  await updateOrder(id, 'cancelled');
-  toast('Comanda cancelada');
+  return toast(STAFF_FORBIDDEN_MESSAGE);
 }
 
 async function confirmOrder(id, estimatedTime) {
@@ -1242,8 +1071,8 @@ function releaseNotesFor(panel = 'panel') {
   if (panel === 'staff') {
     return [
       'Nuevo pedido limpio: ya no duplica productos anteriores.',
-      'Tickets imprimibles para comandas y cuenta de mesa.',
-      'Subdivisiones tipo salsa y cancelación de comandas desde mesero.'
+      'Mesero captura pedidos y envía comandas a cocina/barra.',
+      'Cuenta, ticket, pago y cierre quedan en Caja/Admin.'
     ];
   }
   if (panel === 'kitchen') {
@@ -1255,7 +1084,7 @@ function releaseNotesFor(panel = 'panel') {
   }
   return [
     'Corte diario con pagos, egresos y cierre de caja.',
-    'Meseros pueden imprimir ticket y registrar pago sin autorización.',
+    'Caja/Admin concentra ticket, pago y cierre de cuenta.',
     'Nuevo flujo de pedidos más simple para el equipo.'
   ];
 }
@@ -1297,9 +1126,9 @@ function tourStepsFor(panel = 'panel') {
   if (panel === 'staff') {
     return [
       { selector: '.client-hero', title: 'Panel de mesero', text: 'Aquí entras a Nuevo pedido, Cocina, Tour y Ayuda.' },
-      { selector: '#staffSessions', title: 'Mesas activas', text: 'Toma tu mesa y trabaja solo con las mesas asignadas a ti.' },
+      { selector: '#staffSessions', title: 'Mesas asignadas', text: 'Trabaja solo con las mesas asignadas por Caja/Admin.' },
       { selector: '#staffSessions', title: 'Nuevo pedido', text: 'En una mesa activa toca Nuevo pedido: eliges categoría, platillo, cantidad y nota.' },
-      { selector: '#staffSessions', title: 'Generar cuenta', text: 'Cuando pidan la cuenta, toca Generar cuenta. Verás total y cuentas separadas.' },
+      { selector: '#staffSessions', title: 'Mesas asignadas', text: 'Desde aquí agregas pedidos a tus mesas. Cuenta, ticket y pago se hacen en Caja/Admin.' },
       { selector: '#staffAlerts', title: 'Alertas', text: 'Aquí aparecen solicitudes del cliente y avisos importantes.' }
     ];
   }

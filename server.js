@@ -527,6 +527,10 @@ function requireStaff(req, res, next) {
   return res.status(401).json({ ok: false, message: 'No autorizado' });
 }
 
+function staffForbidden(res, message = 'Acción reservada para Caja/Admin') {
+  return res.status(403).json({ ok: false, message });
+}
+
 function getBaseUrl(req) {
   return `${req.protocol}://${req.get('host')}`;
 }
@@ -1571,6 +1575,91 @@ function computeStaffStats(db) {
   });
 }
 
+function staffOrderView(order) {
+  return {
+    id: order.id,
+    commandNumber: order.commandNumber,
+    tableId: order.tableId || '',
+    tableName: order.tableName,
+    status: order.status,
+    estimatedTime: order.estimatedTime || '',
+    note: order.note || '',
+    customerName: order.customerName || '',
+    customerPhone: order.customerPhone || '',
+    source: order.source || '',
+    items: (order.items || []).map(item => ({
+      itemId: item.itemId || '',
+      name: item.name || 'Producto',
+      qty: Number(item.qty || 0),
+      note: item.note || '',
+      modifierName: item.modifierName || '',
+      modifierGroupName: item.modifierGroupName || '',
+      kitchenStation: item.kitchenStation || '',
+      kitchenStationLabel: item.kitchenStationLabel || '',
+      printer_area: item.printer_area || ''
+    })),
+    createdAt: order.createdAt,
+    updatedAt: order.updatedAt,
+    confirmedAt: order.confirmedAt || '',
+    inProgressAt: order.inProgressAt || '',
+    readyAt: order.readyAt || '',
+    deliveredAt: order.deliveredAt || '',
+    assignedStaffId: order.assignedStaffId || '',
+    assignedStaffName: order.assignedStaffName || '',
+    printJobStatus: order.printJobStatus || ''
+  };
+}
+
+function staffAlertView(alert) {
+  return {
+    id: alert.id,
+    type: alert.type,
+    tableId: alert.tableId || '',
+    tableName: alert.tableName || '',
+    note: alert.note || '',
+    status: alert.status,
+    customerName: alert.customerName || '',
+    customerPhone: alert.customerPhone || '',
+    assignedStaffId: alert.assignedStaffId || '',
+    assignedStaffName: alert.assignedStaffName || '',
+    createdAt: alert.createdAt,
+    updatedAt: alert.updatedAt,
+    billDetails: alert.billDetails ? {
+      whenLabel: alert.billDetails.whenLabel || '',
+      bringTerminal: Boolean(alert.billDetails.bringTerminal)
+    } : null
+  };
+}
+
+function staffSessionView(session) {
+  return {
+    id: session.id,
+    tableId: session.tableId,
+    tableName: session.tableName,
+    customerName: session.customerName || '',
+    customerPhone: session.customerPhone || '',
+    status: session.status,
+    source: session.source || '',
+    assignedStaffId: session.assignedStaffId || '',
+    assignedStaffName: session.assignedStaffName || '',
+    takenAt: session.takenAt || '',
+    createdAt: session.createdAt,
+    updatedAt: session.updatedAt
+  };
+}
+
+function staffStatsView(db) {
+  return computeStaffStats(db).map(stat => {
+    const { totalSales, ...rest } = stat;
+    return rest;
+  });
+}
+
+function staffMenuItemView(item) {
+  const { price, cost, subtotal, total, ...rest } = item || {};
+  return rest;
+}
+
 app.get('/health', (req, res) => {
   res.json({ ok: true, product: 'AUREA by KMO', version: '0.9.18-cocina-zonas-fix' });
 });
@@ -1711,20 +1800,21 @@ app.get('/api/staff/session', (req, res) => {
 app.get('/api/staff/data', requireStaff, (req, res) => {
   const db = readDb();
   const staff = db.staff.find(member => member.id === req.session.staffId);
+  const staffMenuItems = (db.menuItems || []).map(staffMenuItemView);
   res.json({
     ok: true,
     restaurant: db.restaurant,
     staff: staff ? { id: staff.id, name: staff.name, role: staff.role, whatsapp: staff.whatsapp, kitchenStationIds: staff.kitchenStationIds || [] } : null,
-    alerts: db.alerts,
-    orders: db.orders,
+    alerts: (db.alerts || []).map(staffAlertView),
+    orders: (db.orders || []).map(staffOrderView),
     feedback: db.feedback || [],
-    tableSessions: db.tableSessions,
+    tableSessions: (db.tableSessions || []).map(staffSessionView),
     tables: db.tables,
     categories: db.categories,
-    menuItems: db.menuItems,
-    products: db.menuItems,
-    menu: db.menuItems,
-    staffStats: computeStaffStats(db)
+    menuItems: staffMenuItems,
+    products: staffMenuItems,
+    menu: staffMenuItems,
+    staffStats: staffStatsView(db)
   });
 });
 
@@ -1751,6 +1841,7 @@ app.patch('/api/staff/alerts/:id', requireStaff, (req, res) => {
 });
 
 app.patch('/api/staff/orders/:id', requireStaff, (req, res) => {
+  if (req.body.status === 'cancelled') return staffForbidden(res, 'Cancelar comandas es exclusivo de Caja/Admin');
   const db = readDb();
   const order = db.orders.find(o => o.id === req.params.id);
   if (!order) return res.status(404).json({ ok: false, message: 'Pedido no encontrado' });
@@ -1772,6 +1863,7 @@ app.patch('/api/staff/orders/:id', requireStaff, (req, res) => {
 });
 
 app.delete('/api/staff/orders/:id/items/:itemIndex', requireStaff, (req, res) => {
+  return staffForbidden(res, 'Cancelar productos enviados es exclusivo de Caja/Admin');
   const db = readDb();
   const order = db.orders.find(o => o.id === req.params.id);
   if (!order) return res.status(404).json({ ok: false, message: 'Pedido no encontrado' });
@@ -2870,6 +2962,7 @@ app.delete('/api/admin/staff/:id', requireLogin, (req, res) => {
 
 
 app.post('/api/staff/tables/:tableId/take', requireStaff, (req, res) => {
+  return staffForbidden(res, 'Activar o tomar mesas es exclusivo de Caja/Admin');
   const db = readDb();
   const table = db.tables.find(t => t.id === req.params.tableId);
   if (!table) return res.status(404).json({ ok: false, message: 'Mesa no encontrada' });
@@ -2892,6 +2985,7 @@ app.post('/api/staff/tables/:tableId/take', requireStaff, (req, res) => {
 
 
 app.post('/api/staff/tables/:tableId/paid', requireStaff, (req, res) => {
+  return staffForbidden(res, 'Registrar pagos es exclusivo de Caja/Admin');
   const db = readDb();
   const session = activeSessionForTable(db, req.params.tableId);
   if (!session) return res.status(404).json({ ok: false, message: 'No hay sesión activa en esta mesa' });
@@ -2918,6 +3012,7 @@ app.post('/api/staff/tables/:tableId/paid', requireStaff, (req, res) => {
 });
 
 app.post('/api/staff/tables/:tableId/close', requireStaff, (req, res) => {
+  return staffForbidden(res, 'Cerrar cuentas es exclusivo de Caja/Admin');
   const db = readDb();
   const session = activeSessionForTable(db, req.params.tableId);
   if (!session) return res.status(404).json({ ok: false, message: 'No hay sesión activa en esta mesa' });
@@ -2932,6 +3027,7 @@ app.post('/api/staff/tables/:tableId/close', requireStaff, (req, res) => {
 });
 
 app.post('/api/staff/tables/:tableId/release', requireStaff, (req, res) => {
+  return staffForbidden(res, 'Liberar o desactivar mesas es exclusivo de Caja/Admin');
   const db = readDb();
   const session = activeSessionForTable(db, req.params.tableId);
   if (!session) return res.status(404).json({ ok: false, message: 'No hay sesión activa en esta mesa' });
