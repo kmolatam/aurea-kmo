@@ -652,6 +652,65 @@
   </div>
 
 
+  <div id="adminDiscountModal" class="modal-backdrop">
+    <div class="modal">
+      <div class="section-head">
+        <div>
+          <h2 style="margin:0;">Aplicar descuento</h2>
+          <p id="adminDiscountTableName" class="muted" style="margin:6px 0 0;">Mesa</p>
+        </div>
+        <button class="btn ghost small" onclick="closeAdminDiscountModal()">Cerrar</button>
+      </div>
+
+      <div class="grid" style="margin-top:14px;">
+        <label class="col-6">Porcentaje de descuento
+          <input id="adminDiscountPercent" class="input" type="number" min="0" max="100" step="0.01" placeholder="0" oninput="renderAdminDiscountPreview()" />
+        </label>
+        <label class="col-12" id="adminDiscountReasonRow" style="display:none;">Motivo de descuento total / cortesía
+          <input id="adminDiscountReason" class="input" placeholder="Ej. Cortesía dueño, invitación, compensación..." oninput="renderAdminDiscountPreview()" />
+        </label>
+      </div>
+
+      <div id="adminDiscountPreview" class="list" style="margin-top:14px;"></div>
+
+      <div class="inline-actions end" style="margin-top:16px;">
+        <button class="btn ghost" onclick="closeAdminDiscountModal()">Cancelar</button>
+        <button class="btn secondary" id="adminDiscountSubmitBtn" onclick="submitAdminDiscount()">Aplicar</button>
+      </div>
+    </div>
+  </div>
+
+
+  <div id="adminComplimentaryModal" class="modal-backdrop">
+    <div class="modal">
+      <div class="section-head">
+        <div>
+          <h2 style="margin:0;">Enviar cortesía</h2>
+          <p id="adminCompTableName" class="muted" style="margin:6px 0 0;">Mesa</p>
+        </div>
+        <button class="btn ghost small" onclick="closeAdminComplimentaryModal()">Cerrar</button>
+      </div>
+
+      <div class="grid" style="margin-top:14px;">
+        <label class="col-8">Producto
+          <select id="adminCompItemSelect"></select>
+        </label>
+        <label class="col-4">Cantidad
+          <input id="adminCompQty" class="input" type="number" min="1" max="20" step="1" value="1" />
+        </label>
+        <label class="col-12">Motivo opcional
+          <input id="adminCompReason" class="input" placeholder="Ej. Cortesía dueño, compensación..." />
+        </label>
+      </div>
+
+      <div class="inline-actions end" style="margin-top:16px;">
+        <button class="btn ghost" onclick="closeAdminComplimentaryModal()">Cancelar</button>
+        <button class="btn secondary" onclick="submitAdminComplimentary()">Enviar</button>
+      </div>
+    </div>
+  </div>
+
+
   <div id="adminPaymentModal" class="modal-backdrop">
     <div class="modal">
       <div class="section-head">
@@ -673,6 +732,7 @@
             <option value="cash">Efectivo</option>
             <option value="card">Tarjeta</option>
             <option value="transfer">Transferencia</option>
+            <option value="courtesy">Cortesía / descuento total</option>
           </select>
         </label>
         <label class="col-6">Monto recibido
@@ -697,7 +757,7 @@
   </div>
 
 
-  <script src="/aurea-print-bridge.js?v=0.9.22"></script>
-  <script src="/admin.js?v=0.9.22"></script>
+  <script src="/aurea-print-bridge.js?v=0.9.23"></script>
+  <script src="/admin.js?v=0.9.23"></script>
 </body>
 </html>

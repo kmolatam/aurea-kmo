@@ -639,6 +639,9 @@ function buildBillSummary(db, tableId) {
         modifierGroupName: cleanString(item.modifierGroupName || 'Opción', 60) || 'Opción',
         kitchenStation: normalizeKitchenStation(item.kitchenStation || 'hot'),
         kitchenStationLabel: kitchenStationLabel(item.kitchenStation || 'hot', db.restaurant.kitchenStations),
+        complimentary: Boolean(item.complimentary),
+        complimentaryReason: cleanString(item.complimentaryReason || '', 180),
+        originalPrice: Number(item.originalPrice || 0),
         dinerName: '',
         subtotal: roundMoney(item.subtotal !== undefined ? item.subtotal : Number(item.price || 0) * Number(item.qty || 0))
       });
@@ -672,6 +675,7 @@ function paymentMethodLabel(value) {
     cash: 'Efectivo',
     card: 'Tarjeta / terminal',
     transfer: 'Transferencia',
+    courtesy: 'Cortesia / descuento total',
     split: 'Cuenta dividida',
     pending: 'Por definir'
   };
@@ -683,6 +687,7 @@ function paymentMethodLabelFull(value) {
     cash: 'Efectivo',
     card: 'Tarjeta',
     transfer: 'Transferencia',
+    courtesy: 'Cortesia / descuento total',
     mixed: 'Mixto',
     split: 'Cuenta dividida',
     pending: 'Por definir',
@@ -707,6 +712,7 @@ function businessDate(value = nowIso()) {
 function normalizePaymentInput(db, tableId, payload = {}) {
   const summary = buildBillSummary(db, tableId) || { subtotal: 0, lines: [], orders: [] };
   const subtotal = roundMoney(summary.subtotal || 0);
+  const discountReason = cleanString(payload.discountReason || payload.reason || '', 240);
   const hasDiscountPercent = payload.discountPercent !== undefined && payload.discountPercent !== '';
   let discountPercent = 0;
   let discountAmount = 0;
@@ -722,9 +728,9 @@ function normalizePaymentInput(db, tableId, payload = {}) {
       err.status = 400;
       throw err;
     }
-    if (numericPercent >= 100 && payload.allowFullDiscount !== true) {
-      const err = new Error('Descuento 100% reservado para rol superior');
-      err.status = 403;
+    if (numericPercent >= 100 && !discountReason) {
+      const err = new Error('Motivo obligatorio para descuento total / cortesia');
+      err.status = 400;
       throw err;
     }
     discountPercent = roundMoney(numericPercent);
@@ -737,7 +743,7 @@ function normalizePaymentInput(db, tableId, payload = {}) {
   const tipsEnabled = db.restaurant?.tipsEnabled !== false;
   const tipAmount = tipsEnabled ? Math.max(0, roundMoney(cleanNumber(payload.tipAmount, 0))) : 0;
   const totalDue = Math.max(0, roundMoney(subtotal - discountAmount + tipAmount));
-  const method = ['cash', 'card', 'transfer', 'mixed', 'split', 'pending', 'other'].includes(payload.method) ? payload.method : 'pending';
+  const method = ['cash', 'card', 'transfer', 'courtesy', 'mixed', 'split', 'pending', 'other'].includes(payload.method) ? payload.method : 'pending';
 
   let cashAmount = Math.max(0, roundMoney(cleanNumber(payload.cashAmount, 0)));
   let cardAmount = Math.max(0, roundMoney(cleanNumber(payload.cardAmount, 0)));
@@ -753,6 +759,7 @@ function normalizePaymentInput(db, tableId, payload = {}) {
     if (amount === null && method === 'card' && payload.cardAmount !== undefined) amount = cardAmount;
     if (amount === null && method === 'transfer' && payload.transferAmount !== undefined) amount = transferAmount;
     if (amount === null && method === 'other' && payload.otherAmount !== undefined) amount = otherAmount;
+    if (amount === null && method === 'courtesy') amount = 0;
     if (amount === null) amount = totalDue;
     cashAmount = method === 'cash' ? amount : 0;
     cardAmount = method === 'card' ? amount : 0;
@@ -767,6 +774,11 @@ function normalizePaymentInput(db, tableId, payload = {}) {
 
   if ((payload.status === 'approved' || payload.closeTable === true) && totalPaid + 0.001 < totalDue) {
     const err = new Error('Monto recibido insuficiente para cerrar la cuenta');
+    err.status = 400;
+    throw err;
+  }
+  if ((payload.status === 'approved' || payload.closeTable === true) && method === 'courtesy' && totalDue > 0.001) {
+    const err = new Error('La cortesia/descuento total solo puede cerrar cuentas en $0');
     err.status = 400;
     throw err;
   }
@@ -791,7 +803,7 @@ function normalizePaymentInput(db, tableId, payload = {}) {
     otherAmount,
     totalPaid,
     changeAmount: method === 'cash' ? Math.max(0, roundMoney(totalPaid - totalDue)) : 0,
-    discountReason: cleanString(payload.discountReason || payload.reason || '', 240),
+    discountReason,
     note: cleanString(payload.note || payload.notes || '', 300)
   };
 }
@@ -824,6 +836,7 @@ function upsertSessionPayment(db, tableId, session, payload = {}, actor = {}) {
     }
     if (normalizedPayload.tipAmount === undefined) normalizedPayload.tipAmount = payment.tipAmount || 0;
     if (normalizedPayload.method === undefined) normalizedPayload.method = payment.method || 'pending';
+    if (normalizedPayload.discountReason === undefined && normalizedPayload.reason === undefined) normalizedPayload.discountReason = payment.discountReason || '';
   }
   const normalized = normalizePaymentInput(db, tableId, normalizedPayload);
   const discountChanged = roundMoney(Number(payment.discountPercent || 0)) !== normalized.discountPercent
@@ -2080,6 +2093,63 @@ function createManualOrderForTable(db, table, payload = {}, actor = {}) {
   return { order, session, printJobs };
 }
 
+function createComplimentaryOrderForTable(db, table, payload = {}, actor = {}) {
+  const menuItem = db.menuItems.find(item => item.id === payload.itemId && item.available !== false);
+  if (!menuItem) {
+    const err = new Error('Selecciona un producto valido para cortesia');
+    err.status = 404;
+    throw err;
+  }
+  const qty = Math.max(1, Math.min(20, Math.floor(Number(payload.qty || 1))));
+  const reason = cleanString(payload.reason || '', 180);
+  const note = reason ? `Cortesia: ${reason}` : 'Cortesia';
+  const idempotencyKey = cleanString(payload.idempotency_key || payload.idempotencyKey || '', 180);
+  const result = createManualOrderForTable(db, table, {
+    ...payload,
+    source: 'admin_complimentary',
+    note,
+    idempotency_key: idempotencyKey,
+    items: [{ itemId: menuItem.id, qty, note }]
+  }, {
+    ...actor,
+    enforceAssignment: false
+  });
+  const now = nowIso();
+  const originalTotal = roundMoney(Number(menuItem.price || 0) * qty);
+  result.order.source = 'admin_complimentary';
+  result.order.total = 0;
+  result.order.complimentary = true;
+  result.order.complimentaryReason = reason;
+  result.order.complimentaryAudit = {
+    tableId: table.id,
+    tableName: table.name,
+    productId: menuItem.id,
+    productName: menuItem.name,
+    qty,
+    originalTotal,
+    reason,
+    sentBy: actor.adminName || 'Admin',
+    role: actor.role || 'admin',
+    at: now
+  };
+  result.order.items = (result.order.items || []).map(item => ({
+    ...item,
+    price: 0,
+    originalPrice: Number(menuItem.price || item.price || 0),
+    subtotal: 0,
+    complimentary: true,
+    complimentaryReason: reason,
+    note: item.note || note
+  }));
+  result.order.updatedAt = now;
+  const alert = (db.alerts || []).find(item => item.orderId === result.order.id);
+  if (alert) {
+    alert.note = `Cortesia #${result.order.commandNumber} - ${menuItem.name} - $0`;
+    alert.updatedAt = now;
+  }
+  return result;
+}
+
 
 app.post('/api/staff/tables/:tableId/order', requireStaff, requirePrintJobsConfigured, (req, res) => {
   const db = readDb();
@@ -2124,6 +2194,30 @@ app.post('/api/admin/manual-order', requireLogin, requirePrintJobsConfigured, (r
     res.json({ ok: true, order: publicOrder(order), printJobs, duplicate: Boolean(duplicate), message: duplicate ? 'Comanda ya registrada; no se duplico.' : 'Comanda manual creada.' });
   } catch (error) {
     res.status(error.status || 500).json({ ok: false, message: error.message || 'No se pudo crear la comanda manual' });
+  }
+});
+
+app.post('/api/admin/tables/:tableId/complimentary-item', requireLogin, requirePrintJobsConfigured, (req, res) => {
+  const db = readDb();
+  const table = db.tables.find(t => t.id === req.params.tableId);
+  if (!table) return res.status(404).json({ ok: false, message: 'Mesa no encontrada' });
+
+  try {
+    const { order, printJobs, duplicate } = createComplimentaryOrderForTable(db, table, req.body || {}, {
+      adminName: req.session.adminUser || 'Admin',
+      role: req.session.adminRole || 'admin',
+      enforceAssignment: false
+    });
+    writeDb(db);
+    res.json({
+      ok: true,
+      order: publicOrder(order),
+      printJobs,
+      duplicate: Boolean(duplicate),
+      message: duplicate ? 'Cortesia ya registrada; no se duplico.' : 'Cortesia enviada a produccion.'
+    });
+  } catch (error) {
+    res.status(error.status || 500).json({ ok: false, message: error.message || 'No se pudo enviar la cortesia' });
   }
 });
 

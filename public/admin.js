@@ -5,8 +5,10 @@ let tablesSignature = '';
 let crmFilter = 'all';
 let pendingLogoDataUrl = undefined;
 let currentAdminPaymentTableId = '';
+let currentAdminDiscountTableId = '';
+let currentAdminCompTableId = '';
 const qrCache = new Map();
-const ADMIN_JS_VERSION = '0.9.22-produccion-pago-mesero-simple';
+const ADMIN_JS_VERSION = '0.9.23-descuento-cortesia';
 
 function money(value) {
   return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(value || 0);
@@ -296,6 +298,7 @@ function paymentMethodName(value) {
     cash: 'Efectivo',
     card: 'Tarjeta',
     transfer: 'Transferencia',
+    courtesy: 'Cortesía / descuento total',
     mixed: 'Mixto',
     split: 'Dividido',
     pending: 'Por definir',
@@ -581,7 +584,7 @@ function ticketPrintStyles(width = ticketWidthMm()) {
     html,body{margin:0;padding:0;background:#fff;color:#111}
     body{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Courier New",monospace;width:${bodyWidth}mm;margin:0 auto;font-size:${baseSize}px;line-height:1.28;-webkit-print-color-adjust:exact;print-color-adjust:exact}
     .ticket{padding:3mm 1mm 30mm}
-    .center{text-align:center}.ticket-logo{display:block;max-width:34mm;max-height:16mm;object-fit:contain;margin:0 auto 2mm}.brand{font-size:${brandSize}px;font-weight:900;letter-spacing:.06em}.muted{color:#555}.line{border-top:1px dashed #222;margin:7px 0}.row{display:flex;justify-content:space-between;gap:6px;align-items:flex-start}.row span:last-child,.row strong:last-child{text-align:right}.item{margin:6px 0;break-inside:avoid}.item strong{font-size:${strongSize}px}.item small{display:block;color:#555;margin-top:2px}.total{font-size:${width === 58 ? 14 : 16}px;font-weight:900}.footer{margin-top:8px;text-align:center;font-size:10px;color:#555}.print-actions{display:grid;gap:8px;margin-top:12px}.print-actions button{width:100%;padding:10px;border:0;border-radius:10px;background:#111;color:#fff;font-weight:800}
+    .center{text-align:center}.ticket-logo{display:block;max-width:34mm;max-height:16mm;object-fit:contain;margin:0 auto 2mm}.brand{font-size:${brandSize}px;font-weight:900;letter-spacing:.06em}.muted{color:#555}.line{border-top:1px dashed #222;margin:7px 0}.row{display:flex;justify-content:space-between;gap:6px;align-items:flex-start}.row span:last-child,.row strong:last-child{text-align:right}.item{margin:6px 0;break-inside:avoid}.item strong{font-size:${strongSize}px}.item small{display:block;color:#555;margin-top:2px}.total{font-size:${width === 58 ? 14 : 16}px;font-weight:900}.tip-note{font-size:10px;color:#555;line-height:1.25}.footer{margin-top:8px;text-align:center;font-size:10px;color:#555}.print-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}.print-actions button{width:100%;padding:9px;border-radius:9px;font-weight:800}.print-actions .primary{border:0;background:#111;color:#fff}.print-actions .secondary{border:1px solid #bbb;background:#fff;color:#333}
     @media print{.print-actions{display:none!important}body{width:${bodyWidth}mm}.ticket{padding:2mm 0 30mm}}
   `;
 }
@@ -592,7 +595,7 @@ function printHtmlDocument(title, bodyHtml, options = {}) {
   const footer = options.footer || 'Gracias por su preferencia';
   const w = window.open('', '_blank', 'width=380,height=720');
   if (!w) return toast('El navegador bloqueó la ventana de impresión. Permite ventanas emergentes.');
-  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escapeHtml(title)}</title><style>${ticketPrintStyles(width)}</style></head><body><div class="ticket"><div class="center">${ticketLogoHtml()}<div class="muted">AUREA by KMO</div></div><div class="line"></div>${bodyHtml}<div class="line"></div><div class="footer">${escapeHtml(footer)}</div><div class="print-actions"><button onclick="window.print()">Imprimir</button><button onclick="window.close()">Cerrar</button></div></div><script>window.addEventListener('load',()=>setTimeout(()=>{window.focus();window.print()},450));<\/script></body></html>`);
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escapeHtml(title)}</title><style>${ticketPrintStyles(width)}</style></head><body><div class="ticket"><div class="center">${ticketLogoHtml()}<div class="muted">AUREA by KMO</div></div><div class="line"></div>${bodyHtml}<div class="line"></div><div class="footer">${escapeHtml(footer)}</div><div class="print-actions"><button class="primary" onclick="window.print()">Imprimir</button><button class="secondary" onclick="window.close()">Cerrar</button></div></div><script>window.addEventListener('load',()=>setTimeout(()=>{window.focus();window.print()},450));<\/script></body></html>`);
   w.document.close();
 }
 
@@ -681,6 +684,9 @@ function adminBillLinesForTable(tableId) {
         note: item.note || '',
         modifierName: item.modifierName || '',
         modifierGroupName: item.modifierGroupName || 'Opción',
+        complimentary: Boolean(item.complimentary),
+        complimentaryReason: item.complimentaryReason || '',
+        originalPrice: Number(item.originalPrice || 0),
         dinerName: ''
       });
     });
@@ -734,7 +740,7 @@ function printAdminBillDataBridge({ tableName, lines, subtotal, discountPercent,
   return bridge.printTextIfBridge(ticketText, printBrandOptions());
 }
 
-function printAdminBillTicketForTable(tableId) {
+function printAdminBillTicketForTableLegacy(tableId) {
   const { session, table, lines, subtotal, discountPercent, discountAmount, total } = adminBillTotalsForTable(tableId);
   if (!lines.length) return toast('Esa mesa aún no tiene productos para imprimir');
   const tableName = session?.tableName || table?.name || 'Mesa';
@@ -763,6 +769,34 @@ function printAdminBillTicketForTable(tableId) {
   `, { footer: 'Gracias por su preferencia' });
 }
 
+function printAdminBillTicketForTable(tableId) {
+  const { session, table, lines, subtotal, discountPercent, discountAmount, total } = adminBillTotalsForTable(tableId);
+  if (!lines.length) return toast('Esa mesa aun no tiene productos para imprimir');
+  const tableName = session?.tableName || table?.name || 'Mesa';
+  const note = 'Propina opcional sugerida: 10% / 15% / 20%. No incluida en el total.';
+  const suggestedTips = total > 0 ? [{ note }] : [];
+  if (printAdminBillDataBridge({ tableName, lines, subtotal, discountPercent, discountAmount, total, suggestedTips, note })) return;
+  const items = lines.map(line => `
+    <div class="item">
+      <div class="row"><span>${escapeHtml(line.qty)}x ${escapeHtml(line.name)}</span><strong>${money(line.subtotal)}</strong></div>
+      ${line.complimentary ? '<small>Cortesia</small>' : ''}
+      ${line.modifierName ? `<small>${escapeHtml(line.modifierGroupName || 'Opcion')}: ${escapeHtml(line.modifierName)}</small>` : ''}
+      ${line.note ? `<small>Nota: ${escapeHtml(line.note)}</small>` : ''}
+    </div>
+  `).join('');
+  const discountRow = discountAmount > 0 || discountPercent > 0
+    ? `<div class="row"><span>Descuento ${escapeHtml(discountPercent)}%</span><span>-${money(discountAmount)}</span></div>`
+    : '';
+  printHtmlDocument(`Ticket ${tableName}`, `
+    <div class="center"><strong>TICKET OFICIAL</strong><br><span>${escapeHtml(tableName)}</span><br><span class="muted">${dateTime(new Date())}</span></div>
+    <div class="line"></div>${items}
+    <div class="line"></div><div class="row"><span>Subtotal</span><span>${money(subtotal)}</span></div>
+    ${discountRow}
+    <div class="row total"><span>Total</span><span>${money(total)}</span></div>
+    ${total > 0 ? `<div class="line"></div><div class="tip-note">${note}</div>` : ''}
+  `, { footer: 'Gracias por su preferencia' });
+}
+
 function selectedFinanceDate() {
   const input = document.getElementById('financeDate');
   if (!input) return todayBusinessDate();
@@ -776,7 +810,7 @@ function financeSummaryForDate(date) {
   const expenses = (db.expenses || []).filter(expense => expense.status !== 'cancelled' && (expense.businessDate || itemBusinessDate(expense.createdAt)) === date);
   const dailyClose = (db.dailyClosures || []).find(item => item.businessDate === date);
   const sales = payments.reduce((acc, payment) => {
-    acc.cash += Number(payment.cashAmount || 0);
+    acc.cash += Math.max(0, Number(payment.cashAmount || 0) - Number(payment.changeAmount || 0));
     acc.card += Number(payment.cardAmount || 0);
     acc.transfer += Number(payment.transferAmount || 0);
     acc.other += Number(payment.otherAmount || 0);
@@ -1081,6 +1115,7 @@ function renderActiveSessions() {
         ${session.assignedStaffName ? '' : (db.staff || []).filter(s => s.active !== false).map(member => `<button class="btn small secondary" onclick="adminAssignTable('${session.tableId}', '${member.id}')">Asignar a ${escapeHtml(member.name)}</button>`).join('\n')}
         ${session.paymentStatus === 'paid' ? '<span class="pill">Pagada</span>' : ''}
         <button class="btn small secondary" onclick="applyAdminDiscountForTable('${session.tableId}')">Descuento %</button>
+        <button class="btn small ghost" onclick="openAdminComplimentaryModal('${session.tableId}')">Enviar cortesía</button>
         <button class="btn small secondary" onclick="printAdminBillTicketForTable('${session.tableId}')">Imprimir ticket</button>
         <button class="btn small success" onclick="openAdminPaymentModal('${session.tableId}')">Ingresar pago</button>
       </div>
@@ -1142,19 +1177,19 @@ async function adminAssignTable(tableId, staffId) {
   }
 }
 
-async function applyAdminDiscountForTable(tableId) {
+async function applyAdminDiscountForTableLegacy(tableId) {
   const { subtotal, discountPercent: currentPercent } = adminBillTotalsForTable(tableId);
   if (!subtotal) return toast('Esa mesa aún no tiene productos');
-  const raw = prompt('Descuento en porcentaje (0 a 99.99)', currentPercent ? String(currentPercent) : '0');
+  const raw = null;
   if (raw === null) return;
   const discountPercent = Number(String(raw).replace(',', '.'));
-  if (!Number.isFinite(discountPercent) || discountPercent < 0 || discountPercent >= 100) {
-    return toast('Descuento inválido. Usa un número entre 0 y 99.99');
+  if (!Number.isFinite(discountPercent) || discountPercent < 0 || discountPercent > 100) {
+    return toast('Descuento inválido. Usa un número entre 0 y 100');
   }
   const discountAmount = suggestedTipAmount(subtotal, discountPercent);
   const total = Math.max(0, subtotal - discountAmount);
-  const reason = prompt('Motivo del descuento (opcional)', '') || '';
-  const ok = confirm(`Aplicar descuento ${discountPercent}%\nSubtotal: ${money(subtotal)}\nDescuento: -${money(discountAmount)}\nTotal final: ${money(total)}`);
+  const reason = '';
+  const ok = true;
   if (!ok) return;
   try {
     await api(`/api/admin/tables/${tableId}/payment`, {
@@ -1175,15 +1210,147 @@ async function applyAdminDiscountForTable(tableId) {
   }
 }
 
+function discountPercentInputValue() {
+  const raw = document.getElementById('adminDiscountPercent')?.value || '0';
+  return Number(String(raw).replace(',', '.'));
+}
+
+function adminDiscountAmounts() {
+  const { subtotal } = adminBillTotalsForTable(currentAdminDiscountTableId);
+  const discountPercent = discountPercentInputValue();
+  const validPercent = Number.isFinite(discountPercent) && discountPercent >= 0 && discountPercent <= 100;
+  const discountAmount = validPercent ? Math.min(subtotal, suggestedTipAmount(subtotal, discountPercent)) : 0;
+  const total = Math.max(0, subtotal - discountAmount);
+  const fullDiscount = validPercent && discountPercent >= 100;
+  const reason = document.getElementById('adminDiscountReason')?.value.trim() || '';
+  return { subtotal, discountPercent, validPercent, discountAmount, total, fullDiscount, reason };
+}
+
+function renderAdminDiscountPreview() {
+  const preview = document.getElementById('adminDiscountPreview');
+  const submit = document.getElementById('adminDiscountSubmitBtn');
+  const reasonRow = document.getElementById('adminDiscountReasonRow');
+  if (!preview || !submit) return;
+  const { subtotal, discountPercent, validPercent, discountAmount, total, fullDiscount, reason } = adminDiscountAmounts();
+  if (reasonRow) reasonRow.style.display = fullDiscount ? 'block' : 'none';
+  const warnings = [];
+  if (!validPercent) warnings.push('Usa un porcentaje numerico entre 0 y 100.');
+  if (fullDiscount && !reason) warnings.push('El descuento total requiere motivo.');
+  submit.disabled = !validPercent || (fullDiscount && !reason) || !currentAdminDiscountTableId;
+  preview.innerHTML = `
+    <div class="item">
+      <div class="item-main">
+        <div class="item-title">Vista previa</div>
+        <div class="item-meta">Subtotal: <strong>${money(subtotal)}</strong></div>
+        <div class="item-meta">Descuento ${validPercent ? escapeHtml(discountPercent) : '0'}%: <strong>-${money(discountAmount)}</strong></div>
+        <div class="item-meta">Total final: <strong>${money(total)}</strong></div>
+        ${fullDiscount ? '<div class="item-meta">Esta cuenta podra cerrarse como cortesia/descuento total con recibido $0.</div>' : ''}
+        ${warnings.map(warning => `<div class="item-meta" style="color:#ffb4b4;">${escapeHtml(warning)}</div>`).join('')}
+      </div>
+    </div>
+  `;
+}
+
+function applyAdminDiscountForTable(tableId) {
+  const totals = adminBillTotalsForTable(tableId);
+  if (!totals.subtotal) return toast('Esa mesa aun no tiene productos');
+  currentAdminDiscountTableId = tableId;
+  const tableName = totals.session?.tableName || totals.table?.name || 'Mesa';
+  document.getElementById('adminDiscountTableName').textContent = `${tableName} · Caja/Admin`;
+  document.getElementById('adminDiscountPercent').value = String(totals.discountPercent || 0);
+  document.getElementById('adminDiscountReason').value = totals.payment?.discountReason || '';
+  document.getElementById('adminDiscountModal').classList.add('active');
+  renderAdminDiscountPreview();
+}
+
+function closeAdminDiscountModal() {
+  currentAdminDiscountTableId = '';
+  document.getElementById('adminDiscountModal')?.classList.remove('active');
+}
+
+async function submitAdminDiscount() {
+  if (!currentAdminDiscountTableId) return;
+  const { discountPercent, validPercent, total, fullDiscount, reason } = adminDiscountAmounts();
+  if (!validPercent) return toast('Descuento invalido');
+  if (fullDiscount && !reason) return toast('Motivo obligatorio para descuento total');
+  try {
+    await api(`/api/admin/tables/${currentAdminDiscountTableId}/payment`, {
+      method: 'POST',
+      body: JSON.stringify({
+        method: fullDiscount ? 'courtesy' : 'pending',
+        authorize: false,
+        closeTable: false,
+        discountPercent,
+        discountReason: reason,
+        amountPaid: fullDiscount ? 0 : total
+      })
+    });
+    closeAdminDiscountModal();
+    toast('Descuento aplicado');
+    await loadData(false);
+  } catch (error) {
+    toast(error.message);
+  }
+}
+
+function openAdminComplimentaryModal(tableId) {
+  const totals = adminBillTotalsForTable(tableId);
+  currentAdminCompTableId = tableId;
+  const tableName = totals.session?.tableName || totals.table?.name || 'Mesa';
+  const select = document.getElementById('adminCompItemSelect');
+  const products = (db.menuItems || []).filter(item => item.available !== false);
+  if (!products.length) return toast('No hay productos disponibles en el menu');
+  document.getElementById('adminCompTableName').textContent = `${tableName} · Caja/Admin`;
+  select.innerHTML = products.map(item => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.name)} · ${money(item.price)}</option>`).join('');
+  document.getElementById('adminCompQty').value = '1';
+  document.getElementById('adminCompReason').value = '';
+  document.getElementById('adminComplimentaryModal').classList.add('active');
+}
+
+function closeAdminComplimentaryModal() {
+  currentAdminCompTableId = '';
+  document.getElementById('adminComplimentaryModal')?.classList.remove('active');
+}
+
+async function submitAdminComplimentary() {
+  if (!currentAdminCompTableId) return;
+  const itemId = document.getElementById('adminCompItemSelect')?.value || '';
+  const qty = Math.max(1, Math.min(20, Math.floor(Number(document.getElementById('adminCompQty')?.value || 1))));
+  const reason = document.getElementById('adminCompReason')?.value || '';
+  if (!itemId) return toast('Selecciona un producto');
+  try {
+    await api(`/api/admin/tables/${currentAdminCompTableId}/complimentary-item`, {
+      method: 'POST',
+      body: JSON.stringify({
+        itemId,
+        qty,
+        reason,
+        idempotency_key: `comp-${currentAdminCompTableId}-${itemId}-${Date.now()}`
+      })
+    });
+    closeAdminComplimentaryModal();
+    toast('Cortesía enviada a producción');
+    await loadData(false);
+  } catch (error) {
+    toast(error.message);
+  }
+}
+
 function adminTipsEnabled() {
   return db?.restaurant?.tipsEnabled !== false;
 }
 
 function adminPaymentAmounts() {
   const { total } = adminBillTotalsForTable(currentAdminPaymentTableId);
-  const method = document.getElementById('adminPaymentMethod')?.value || 'cash';
-  const received = Math.max(0, Number(document.getElementById('adminPaymentReceived')?.value || 0));
-  const useTip = adminTipsEnabled() && document.getElementById('adminPaymentTipFromChange')?.checked;
+  let method = document.getElementById('adminPaymentMethod')?.value || 'cash';
+  let received = Math.max(0, Number(document.getElementById('adminPaymentReceived')?.value || 0));
+  if (total <= 0) {
+    method = 'courtesy';
+    received = 0;
+  } else if (method === 'courtesy') {
+    method = 'cash';
+  }
+  const useTip = total > 0 && adminTipsEnabled() && document.getElementById('adminPaymentTipFromChange')?.checked;
   const diff = Math.max(0, received - total);
   const tipAmount = useTip ? diff : 0;
   const changeAmount = method === 'cash' && !useTip ? diff : 0;
@@ -1197,6 +1364,13 @@ function renderAdminPaymentPreview() {
   const submit = document.getElementById('adminPaymentSubmitBtn');
   if (!preview || !submit) return;
   const { total, method, received, tipAmount, changeAmount, insufficient, invalidOverpay } = adminPaymentAmounts();
+  const methodSelect = document.getElementById('adminPaymentMethod');
+  const receivedInput = document.getElementById('adminPaymentReceived');
+  if (methodSelect && methodSelect.value !== method) methodSelect.value = method;
+  if (receivedInput) {
+    receivedInput.disabled = total <= 0;
+    if (total <= 0) receivedInput.value = '0';
+  }
   const tipRow = document.getElementById('adminPaymentTipRow');
   if (tipRow) tipRow.style.display = adminTipsEnabled() && received > total ? 'flex' : 'none';
   const warnings = [];
@@ -1225,8 +1399,8 @@ function openAdminPaymentModal(tableId) {
   const tableName = totals.session?.tableName || totals.table?.name || 'Mesa';
   document.getElementById('adminPaymentTableName').textContent = `${tableName} · Caja/Admin`;
   document.getElementById('adminPaymentTotal').textContent = money(totals.total);
-  document.getElementById('adminPaymentMethod').value = 'cash';
-  document.getElementById('adminPaymentReceived').value = String(totals.total || '');
+  document.getElementById('adminPaymentMethod').value = totals.total <= 0 ? 'courtesy' : 'cash';
+  document.getElementById('adminPaymentReceived').value = String(totals.total || 0);
   document.getElementById('adminPaymentTipFromChange').checked = false;
   document.getElementById('adminPaymentNote').value = '';
   document.getElementById('adminPaymentModal').classList.add('active');

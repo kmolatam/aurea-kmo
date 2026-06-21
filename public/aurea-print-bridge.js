@@ -105,6 +105,7 @@
     } else {
       lines.push(...wrapText(`${prefix}${name}`, width));
     }
+    if (item?.complimentary) lines.push(...wrapText('Cortesia', width, '  '));
     if (item?.modifierName) lines.push(...wrapText(`${item.modifierGroupName || 'Opcion'}: ${item.modifierName}`, width, '  '));
     if (item?.note) lines.push(...wrapText(`Nota: ${item.note}`, width, '  '));
         return lines.join('\n');
@@ -185,14 +186,12 @@
     const optionalTipNote = 'La propina es opcional y no está incluida en el total.';
     if (suggestedTips.length) {
       lines.push(line(width));
-      lines.push('Propina sugerida: 10% / 15% / 20%');
-      suggestedTips.forEach(tip => {
-        lines.push(row(`${tip.percent || 0}%`, money(tip.amount || 0), width));
-      });
+      lines.push('Propina opcional sugerida:');
+      lines.push('10% / 15% / 20%');
       lines.push(...wrapText(optionalTipNote, width));
     }
     const payloadNote = cleanText(payload.note || '');
-    if (payloadNote && !payloadNote.toLowerCase().includes('propina es opcional')) {
+    if (payloadNote && !payloadNote.toLowerCase().includes('propina es opcional') && !payloadNote.toLowerCase().includes('propina opcional')) {
       lines.push('');
       lines.push(...wrapText(payloadNote, width));
     }
