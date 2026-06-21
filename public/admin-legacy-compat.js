@@ -2,6 +2,11 @@
   var lastAction = '';
   var lastActionAt = 0;
   var visibleTimer = null;
+  var legacyDb = null;
+  var legacyDiscountTableId = '';
+  var legacyPaymentTableId = '';
+  var legacyComplimentaryTableId = '';
+  var legacyPaymentTotal = 0;
 
   function log(message, detail) {
     var entry = {
@@ -96,6 +101,397 @@
     };
   }
 
+  function addClass(el, className) {
+    if (!el) return;
+    if ((' ' + el.className + ' ').indexOf(' ' + className + ' ') === -1) {
+      el.className = el.className ? el.className + ' ' + className : className;
+    }
+  }
+
+  function removeClass(el, className) {
+    if (!el) return;
+    el.className = (' ' + el.className + ' ').replace(' ' + className + ' ', ' ').replace(/^\s+|\s+$/g, '');
+  }
+
+  function byId(id) {
+    return document.getElementById(id);
+  }
+
+  function toNumber(value) {
+    var parsed = Number(String(value || 0).replace(',', '.'));
+    return isFinite(parsed) ? parsed : 0;
+  }
+
+  function money(value) {
+    var amount = Math.round(toNumber(value) * 100) / 100;
+    return '$' + amount.toFixed(2);
+  }
+
+  function setText(id, value) {
+    var el = byId(id);
+    if (el) el.textContent = value;
+  }
+
+  function setValue(id, value) {
+    var el = byId(id);
+    if (el) el.value = value;
+  }
+
+  function setChecked(id, value) {
+    var el = byId(id);
+    if (el) el.checked = Boolean(value);
+  }
+
+  function showModal(id) {
+    addClass(byId(id), 'active');
+  }
+
+  function hideModal(id) {
+    removeClass(byId(id), 'active');
+  }
+
+  function xhrJson(method, url, payload, onSuccess, onError) {
+    var xhr = new XMLHttpRequest();
+    xhr.open(method, url, true);
+    xhr.withCredentials = true;
+    xhr.setRequestHeader('Content-Type', 'application/json');
+    xhr.onreadystatechange = function () {
+      var data;
+      if (xhr.readyState !== 4) return;
+      try {
+        data = JSON.parse(xhr.responseText || '{}');
+      } catch (error) {
+        data = { ok: false, message: xhr.responseText || 'Respuesta invalida' };
+      }
+      if (xhr.status >= 200 && xhr.status < 300 && data.ok !== false) {
+        onSuccess(data);
+      } else {
+        onError(new Error(data.message || ('Error ' + xhr.status)));
+      }
+    };
+    xhr.onerror = function () {
+      onError(new Error('Error de red'));
+    };
+    xhr.send(payload ? JSON.stringify(payload) : null);
+  }
+
+  function loadAdminData(callback) {
+    if (legacyDb) {
+      callback(legacyDb);
+      return;
+    }
+    visibleLog('cargando datos admin');
+    xhrJson('GET', '/api/admin/data?legacy=' + new Date().getTime(), null, function (data) {
+      legacyDb = data;
+      callback(legacyDb);
+    }, function (error) {
+      visibleLog('error cargando datos: ' + error.message);
+    });
+  }
+
+  function refreshAdminData(callback) {
+    legacyDb = null;
+    loadAdminData(callback || function () {});
+  }
+
+  function tableById(db, tableId) {
+    var tables = db && db.tables ? db.tables : [];
+    for (var i = 0; i < tables.length; i += 1) {
+      if (tables[i].id === tableId) return tables[i];
+    }
+    return null;
+  }
+
+  function activeSessionForTable(db, tableId) {
+    var sessions = db && db.tableSessions ? db.tableSessions : [];
+    var found = null;
+    for (var i = 0; i < sessions.length; i += 1) {
+      if (sessions[i].tableId === tableId && sessions[i].status === 'active') {
+        if (!found || String(sessions[i].createdAt || '') > String(found.createdAt || '')) found = sessions[i];
+      }
+    }
+    return found;
+  }
+
+  function activePaymentForTable(db, tableId, session) {
+    var payments = db && db.payments ? db.payments : [];
+    for (var i = 0; i < payments.length; i += 1) {
+      if (session && payments[i].id && payments[i].id === session.paymentId) return payments[i];
+    }
+    for (var j = 0; j < payments.length; j += 1) {
+      if (session && payments[j].sessionId === session.id && payments[j].status !== 'cancelled') return payments[j];
+    }
+    for (var k = 0; k < payments.length; k += 1) {
+      if (payments[k].tableId === tableId && payments[k].status !== 'cancelled') return payments[k];
+    }
+    return null;
+  }
+
+  function billTotalsForTable(db, tableId) {
+    var session = activeSessionForTable(db, tableId);
+    var orders = db && db.orders ? db.orders : [];
+    var lines = [];
+    var subtotal = 0;
+    var payment = activePaymentForTable(db, tableId, session);
+    var discountPercent = payment ? toNumber(payment.discountPercent) : 0;
+    var table = tableById(db, tableId);
+    for (var i = 0; i < orders.length; i += 1) {
+      var order = orders[i];
+      if (order.tableId !== tableId) continue;
+      if (order.status === 'cancelled' || order.closedWithTable === true) continue;
+      if (session && order.sessionId && order.sessionId !== session.id) continue;
+      var items = order.items || [];
+      for (var j = 0; j < items.length; j += 1) {
+        var item = items[j];
+        var qty = toNumber(item.qty || item.quantity || 0);
+        var price = toNumber(item.price || 0);
+        var lineSubtotal = toNumber(item.subtotal || (qty * price));
+        lines.push(item);
+        subtotal += lineSubtotal;
+      }
+    }
+    var discountAmount = Math.min(subtotal, subtotal * (discountPercent / 100));
+    var total = Math.max(0, subtotal - discountAmount);
+    return {
+      table: table,
+      session: session,
+      payment: payment,
+      lines: lines,
+      subtotal: subtotal,
+      discountPercent: discountPercent,
+      discountAmount: discountAmount,
+      total: total
+    };
+  }
+
+  function renderDiscountPreviewLegacy() {
+    var totals = billTotalsForTable(legacyDb, legacyDiscountTableId);
+    var percent = toNumber(byId('adminDiscountPercent') && byId('adminDiscountPercent').value);
+    var valid = percent >= 0 && percent <= 100;
+    var amount = valid ? Math.min(totals.subtotal, totals.subtotal * (percent / 100)) : 0;
+    var total = Math.max(0, totals.subtotal - amount);
+    var full = valid && percent >= 100;
+    var reason = byId('adminDiscountReason') ? byId('adminDiscountReason').value : '';
+    var reasonRow = byId('adminDiscountReasonRow');
+    var submit = byId('adminDiscountSubmitBtn');
+    var preview = byId('adminDiscountPreview');
+    if (reasonRow) reasonRow.style.display = full ? 'block' : 'none';
+    if (submit) submit.disabled = !valid || (full && !reason);
+    if (preview) {
+      preview.innerHTML = '<div class="item"><div class="item-main">'
+        + '<div class="item-title">Vista previa</div>'
+        + '<div class="item-meta">Subtotal: <strong>' + money(totals.subtotal) + '</strong></div>'
+        + '<div class="item-meta">Descuento ' + (valid ? percent : 0) + '%: <strong>-' + money(amount) + '</strong></div>'
+        + '<div class="item-meta">Total final: <strong>' + money(total) + '</strong></div>'
+        + (!valid ? '<div class="item-meta" style="color:#ffb4b4;">Usa un porcentaje entre 0 y 100.</div>' : '')
+        + (full && !reason ? '<div class="item-meta" style="color:#ffb4b4;">Motivo obligatorio para descuento total.</div>' : '')
+        + '</div></div>';
+    }
+  }
+
+  function openDiscountLegacy(tableId) {
+    visibleLog('abriendo descuento legacy');
+    refreshAdminData(function (db) {
+      var totals = billTotalsForTable(db, tableId);
+      if (!totals.subtotal) {
+        visibleLog('Esa mesa aun no tiene productos');
+        return;
+      }
+      legacyDiscountTableId = tableId;
+      setText('adminDiscountTableName', ((totals.session && totals.session.tableName) || (totals.table && totals.table.name) || 'Mesa') + ' - Caja/Admin');
+      setValue('adminDiscountPercent', String(totals.discountPercent || 0));
+      setValue('adminDiscountReason', totals.payment && totals.payment.discountReason ? totals.payment.discountReason : '');
+      renderDiscountPreviewLegacy();
+      showModal('adminDiscountModal');
+    });
+  }
+
+  function submitDiscountLegacy() {
+    var totals = billTotalsForTable(legacyDb, legacyDiscountTableId);
+    var percent = toNumber(byId('adminDiscountPercent') && byId('adminDiscountPercent').value);
+    var full = percent >= 100;
+    var reason = byId('adminDiscountReason') ? byId('adminDiscountReason').value : '';
+    var discountAmount = Math.min(totals.subtotal, totals.subtotal * (percent / 100));
+    var total = Math.max(0, totals.subtotal - discountAmount);
+    if (percent < 0 || percent > 100) {
+      visibleLog('Descuento invalido');
+      return;
+    }
+    if (full && !reason) {
+      visibleLog('Motivo obligatorio para descuento total');
+      return;
+    }
+    visibleLog('enviando request descuento');
+    xhrJson('POST', '/api/admin/tables/' + legacyDiscountTableId + '/payment', {
+      method: full ? 'courtesy' : 'pending',
+      authorize: false,
+      closeTable: false,
+      discountPercent: percent,
+      discountReason: reason,
+      amountPaid: full ? 0 : total
+    }, function () {
+      visibleLog('respuesta backend descuento OK');
+      hideModal('adminDiscountModal');
+      refreshAdminData(function () {
+        if (window.loadData) window.loadData(false);
+      });
+    }, function (error) {
+      visibleLog('respuesta backend descuento ERROR: ' + error.message);
+    });
+  }
+
+  function openComplimentaryLegacy(tableId) {
+    visibleLog('abriendo cortesia legacy');
+    refreshAdminData(function (db) {
+      var totals = billTotalsForTable(db, tableId);
+      var products = [];
+      var items = db && db.menuItems ? db.menuItems : [];
+      for (var i = 0; i < items.length; i += 1) {
+        if (items[i].available !== false) products.push(items[i]);
+      }
+      if (!products.length) {
+        visibleLog('No hay productos disponibles');
+        return;
+      }
+      legacyComplimentaryTableId = tableId;
+      setText('adminCompTableName', ((totals.session && totals.session.tableName) || (totals.table && totals.table.name) || 'Mesa') + ' - Caja/Admin');
+      var select = byId('adminCompItemSelect');
+      if (select) {
+        select.innerHTML = '';
+        for (var j = 0; j < products.length; j += 1) {
+          var option = document.createElement('option');
+          option.value = products[j].id;
+          option.text = (products[j].name || 'Producto') + ' - ' + money(products[j].price || 0);
+          select.appendChild(option);
+        }
+      }
+      setValue('adminCompQty', '1');
+      setValue('adminCompReason', '');
+      showModal('adminComplimentaryModal');
+    });
+  }
+
+  function submitComplimentaryLegacy() {
+    var itemId = byId('adminCompItemSelect') ? byId('adminCompItemSelect').value : '';
+    var qty = Math.max(1, Math.min(20, Math.floor(toNumber(byId('adminCompQty') && byId('adminCompQty').value) || 1)));
+    var reason = byId('adminCompReason') ? byId('adminCompReason').value : '';
+    if (!itemId) {
+      visibleLog('Selecciona un producto');
+      return;
+    }
+    visibleLog('enviando request cortesia');
+    xhrJson('POST', '/api/admin/tables/' + legacyComplimentaryTableId + '/complimentary-item', {
+      itemId: itemId,
+      qty: qty,
+      reason: reason,
+      idempotency_key: 'comp-' + legacyComplimentaryTableId + '-' + itemId + '-' + new Date().getTime()
+    }, function () {
+      visibleLog('respuesta backend cortesia OK');
+      hideModal('adminComplimentaryModal');
+      refreshAdminData(function () {
+        if (window.loadData) window.loadData(false);
+      });
+    }, function (error) {
+      visibleLog('respuesta backend cortesia ERROR: ' + error.message);
+    });
+  }
+
+  function renderPaymentPreviewLegacy() {
+    var methodEl = byId('adminPaymentMethod');
+    var receivedEl = byId('adminPaymentReceived');
+    var tipEl = byId('adminPaymentTipFromChange');
+    var method = methodEl ? methodEl.value : 'cash';
+    var received = toNumber(receivedEl && receivedEl.value);
+    var total = legacyPaymentTotal;
+    if (total <= 0) {
+      method = 'courtesy';
+      received = 0;
+      if (methodEl) methodEl.value = method;
+      if (receivedEl) {
+        receivedEl.value = '0';
+        receivedEl.disabled = true;
+      }
+    } else if (receivedEl) {
+      receivedEl.disabled = false;
+    }
+    var diff = Math.max(0, received - total);
+    var useTip = tipEl && tipEl.checked && total > 0;
+    var tip = useTip ? diff : 0;
+    var change = method === 'cash' && !useTip ? diff : 0;
+    var insufficient = received + 0.001 < total;
+    var invalidOverpay = method !== 'cash' && diff > 0 && !useTip;
+    var tipRow = byId('adminPaymentTipRow');
+    if (tipRow) tipRow.style.display = received > total ? 'flex' : 'none';
+    var submit = byId('adminPaymentSubmitBtn');
+    if (submit) submit.disabled = insufficient || invalidOverpay;
+    var preview = byId('adminPaymentPreview');
+    if (preview) {
+      preview.innerHTML = '<div class="item"><div class="item-main">'
+        + '<div class="item-title">Resumen de pago</div>'
+        + '<div class="item-meta">Metodo: ' + method + '</div>'
+        + '<div class="item-meta">Total cuenta: <strong>' + money(total) + '</strong></div>'
+        + '<div class="item-meta">Recibido: <strong>' + money(received) + '</strong></div>'
+        + '<div class="item-meta">Propina: <strong>' + money(tip) + '</strong></div>'
+        + '<div class="item-meta">Cambio: <strong>' + money(change) + '</strong></div>'
+        + (insufficient ? '<div class="item-meta" style="color:#ffb4b4;">Monto insuficiente.</div>' : '')
+        + (invalidOverpay ? '<div class="item-meta" style="color:#ffb4b4;">Captura total exacto o registra propina.</div>' : '')
+        + '</div></div>';
+    }
+  }
+
+  function openPaymentLegacy(tableId) {
+    visibleLog('abriendo pago legacy');
+    refreshAdminData(function (db) {
+      var totals = billTotalsForTable(db, tableId);
+      if (!totals.lines.length) {
+        visibleLog('Esa mesa aun no tiene productos');
+        return;
+      }
+      legacyPaymentTableId = tableId;
+      legacyPaymentTotal = totals.total;
+      setText('adminPaymentTableName', ((totals.session && totals.session.tableName) || (totals.table && totals.table.name) || 'Mesa') + ' - Caja/Admin');
+      setText('adminPaymentTotal', money(totals.total));
+      setValue('adminPaymentMethod', totals.total <= 0 ? 'courtesy' : 'cash');
+      setValue('adminPaymentReceived', String(totals.total || 0));
+      setChecked('adminPaymentTipFromChange', false);
+      setValue('adminPaymentNote', '');
+      renderPaymentPreviewLegacy();
+      showModal('adminPaymentModal');
+    });
+  }
+
+  function submitPaymentLegacy() {
+    var method = byId('adminPaymentMethod') ? byId('adminPaymentMethod').value : 'cash';
+    var received = toNumber(byId('adminPaymentReceived') && byId('adminPaymentReceived').value);
+    var total = legacyPaymentTotal;
+    if (total <= 0) {
+      method = 'courtesy';
+      received = 0;
+    }
+    var useTip = byId('adminPaymentTipFromChange') && byId('adminPaymentTipFromChange').checked && total > 0;
+    var tipAmount = useTip ? Math.max(0, received - total) : 0;
+    if (received + 0.001 < total) {
+      visibleLog('Monto insuficiente');
+      return;
+    }
+    visibleLog('enviando request pago');
+    xhrJson('POST', '/api/admin/tables/' + legacyPaymentTableId + '/payment', {
+      method: method,
+      amountPaid: received,
+      tipAmount: tipAmount,
+      closeTable: true,
+      note: byId('adminPaymentNote') ? byId('adminPaymentNote').value : ''
+    }, function () {
+      visibleLog('respuesta backend pago OK');
+      hideModal('adminPaymentModal');
+      refreshAdminData(function () {
+        if (window.loadData) window.loadData(false);
+      });
+    }, function (error) {
+      visibleLog('respuesta backend pago ERROR: ' + error.message);
+    });
+  }
+
   function installFetchCompat() {
     if (!window.Promise) {
       visibleLog('WebView legacy: Promise no disponible');
@@ -166,12 +562,13 @@
     var tableId = button && button.getAttribute ? button.getAttribute('data-table-id') : '';
     var actions = window.AureaAdminActions || {};
     log('action:' + action, tableId || '');
-    if (action === 'open-payment' && typeof actions.openPayment === 'function') return actions.openPayment(tableId);
-    if (action === 'open-discount' && typeof actions.openDiscount === 'function') return actions.openDiscount(tableId);
-    if (action === 'open-complimentary' && typeof actions.openComplimentary === 'function') return actions.openComplimentary(tableId);
-    if (action === 'submit-payment' && typeof actions.submitPayment === 'function') return actions.submitPayment();
-    if (action === 'submit-discount' && typeof actions.submitDiscount === 'function') return actions.submitDiscount();
-    if (action === 'submit-complimentary' && typeof actions.submitComplimentary === 'function') return actions.submitComplimentary();
+    if (action === 'open-payment') return openPaymentLegacy(tableId);
+    if (action === 'open-discount') return openDiscountLegacy(tableId);
+    if (action === 'open-complimentary') return openComplimentaryLegacy(tableId);
+    if (action === 'submit-payment') return submitPaymentLegacy();
+    if (action === 'submit-discount') return submitDiscountLegacy();
+    if (action === 'submit-complimentary') return submitComplimentaryLegacy();
+    if (action === 'daily-close' && typeof actions.submitDailyClose === 'function') return actions.submitDailyClose();
     if (action === 'open-payment' && typeof window.openAdminPaymentModal === 'function') return window.openAdminPaymentModal(tableId);
     if (action === 'open-discount' && typeof window.applyAdminDiscountForTable === 'function') return window.applyAdminDiscountForTable(tableId);
     if (action === 'open-complimentary' && typeof window.openAdminComplimentaryModal === 'function') return window.openAdminComplimentaryModal(tableId);
@@ -185,7 +582,10 @@
   }
 
   function isSubmitAction(action) {
-    return action === 'submit-payment'
+    return action === 'open-payment'
+      || action === 'open-discount'
+      || action === 'open-complimentary'
+      || action === 'submit-payment'
       || action === 'submit-discount'
       || action === 'submit-complimentary'
       || action === 'daily-close';
@@ -223,6 +623,48 @@
     return !shouldStop;
   }
 
+  function addLegacyListener(id, eventName, handler) {
+    var el = byId(id);
+    if (!el) return;
+    if (el.addEventListener) el.addEventListener(eventName, handler, false);
+    else if (el.attachEvent) el.attachEvent('on' + eventName, handler);
+  }
+
+  function bindLegacyInputs() {
+    addLegacyListener('adminDiscountPercent', 'input', renderDiscountPreviewLegacy);
+    addLegacyListener('adminDiscountPercent', 'change', renderDiscountPreviewLegacy);
+    addLegacyListener('adminDiscountReason', 'input', renderDiscountPreviewLegacy);
+    addLegacyListener('adminDiscountReason', 'change', renderDiscountPreviewLegacy);
+    addLegacyListener('adminPaymentMethod', 'change', renderPaymentPreviewLegacy);
+    addLegacyListener('adminPaymentReceived', 'input', renderPaymentPreviewLegacy);
+    addLegacyListener('adminPaymentReceived', 'change', renderPaymentPreviewLegacy);
+    addLegacyListener('adminPaymentTipFromChange', 'change', renderPaymentPreviewLegacy);
+    addLegacyListener('adminPaymentTipFromChange', 'click', renderPaymentPreviewLegacy);
+  }
+
+  function installWindowFallbacks() {
+    if (!window.openAdminPaymentModal) window.openAdminPaymentModal = openPaymentLegacy;
+    if (!window.applyAdminDiscountForTable) window.applyAdminDiscountForTable = openDiscountLegacy;
+    if (!window.openAdminComplimentaryModal) window.openAdminComplimentaryModal = openComplimentaryLegacy;
+    if (!window.submitAdminPayment) window.submitAdminPayment = submitPaymentLegacy;
+    if (!window.submitAdminDiscount) window.submitAdminDiscount = submitDiscountLegacy;
+    if (!window.submitAdminComplimentary) window.submitAdminComplimentary = submitComplimentaryLegacy;
+    if (!window.renderAdminPaymentPreview) window.renderAdminPaymentPreview = renderPaymentPreviewLegacy;
+    if (!window.renderAdminDiscountPreview) window.renderAdminDiscountPreview = renderDiscountPreviewLegacy;
+    if (!window.closeAdminPaymentModal) window.closeAdminPaymentModal = function () {
+      legacyPaymentTableId = '';
+      hideModal('adminPaymentModal');
+    };
+    if (!window.closeAdminDiscountModal) window.closeAdminDiscountModal = function () {
+      legacyDiscountTableId = '';
+      hideModal('adminDiscountModal');
+    };
+    if (!window.closeAdminComplimentaryModal) window.closeAdminComplimentaryModal = function () {
+      legacyComplimentaryTableId = '';
+      hideModal('adminComplimentaryModal');
+    };
+  }
+
   window.onerror = function (message, source, lineno, colno, error) {
     log('window-error', [message, source, lineno, colno, error && error.stack ? error.stack : ''].join(' | '));
     return false;
@@ -246,5 +688,7 @@
   };
 
   installFetchCompat();
+  installWindowFallbacks();
+  bindLegacyInputs();
   log('loaded', navigator.userAgent || '');
 })();
