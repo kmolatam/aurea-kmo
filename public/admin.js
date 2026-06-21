@@ -35,6 +35,12 @@ function toast(message) {
   setTimeout(() => el.classList.remove('active'), 2600);
 }
 
+function legacyVisibleLog(message) {
+  if (window.AureaLegacyCompat && typeof window.AureaLegacyCompat.visibleLog === 'function') {
+    window.AureaLegacyCompat.visibleLog(message);
+  }
+}
+
 function phoneForWhatsApp(phone) {
   let digits = String(phone || '').replace(/\D/g, '');
   if (digits.length === 10) digits = `52${digits}`;
@@ -1164,10 +1170,10 @@ function renderActiveSessions() {
         ${assignButtons}
         ${session.assignedStaffName ? `<button class="btn small ghost" onclick="adminReleaseTable('${session.tableId}')">Liberar mesa</button>` : ''}
         ${session.paymentStatus === 'paid' ? '<span class="pill">Pagada</span>' : ''}
-        <button class="btn small secondary" data-legacy-action="open-discount" data-table-id="${escapeHtml(session.tableId)}" onclick="applyAdminDiscountForTable('${session.tableId}')">Descuento %</button>
-        <button class="btn small ghost" onclick="openAdminComplimentaryModal('${session.tableId}')">Enviar cortesía</button>
+        <button class="btn small secondary" type="button" data-legacy-action="open-discount" data-table-id="${escapeHtml(session.tableId)}" onclick="applyAdminDiscountForTable('${session.tableId}')">Descuento %</button>
+        <button class="btn small ghost" type="button" data-legacy-action="open-complimentary" data-table-id="${escapeHtml(session.tableId)}" onclick="openAdminComplimentaryModal('${session.tableId}')">Enviar cortesía</button>
         <button class="btn small secondary" onclick="printAdminBillTicketForTable('${session.tableId}')">Imprimir ticket</button>
-        <button class="btn small success" data-legacy-action="open-payment" data-table-id="${escapeHtml(session.tableId)}" onclick="openAdminPaymentModal('${session.tableId}')">Ingresar pago</button>
+        <button class="btn small success" type="button" data-legacy-action="open-payment" data-table-id="${escapeHtml(session.tableId)}" onclick="openAdminPaymentModal('${session.tableId}')">Ingresar pago</button>
       </div>
     </div>
       `;
@@ -1364,6 +1370,7 @@ function renderAdminDiscountPreview() {
 }
 
 function applyAdminDiscountForTable(tableId) {
+  legacyVisibleLog('click descuento detectado');
   const totals = adminBillTotalsForTable(tableId);
   if (!totals.subtotal) return toast('Esa mesa aun no tiene productos');
   currentAdminDiscountTableId = tableId;
@@ -1386,6 +1393,7 @@ async function submitAdminDiscount() {
   if (!validPercent) return toast('Descuento invalido');
   if (fullDiscount && !reason) return toast('Motivo obligatorio para descuento total');
   try {
+    legacyVisibleLog('enviando request descuento');
     await api(`/api/admin/tables/${currentAdminDiscountTableId}/payment`, {
       method: 'POST',
       body: JSON.stringify({
@@ -1397,15 +1405,18 @@ async function submitAdminDiscount() {
         amountPaid: fullDiscount ? 0 : total
       })
     });
+    legacyVisibleLog('respuesta backend descuento OK');
     closeAdminDiscountModal();
     toast('Descuento aplicado');
     await loadData(false);
   } catch (error) {
+    legacyVisibleLog(`respuesta backend descuento ERROR: ${error.message}`);
     toast(error.message);
   }
 }
 
 function openAdminComplimentaryModal(tableId) {
+  legacyVisibleLog('click cortesia detectado');
   const totals = adminBillTotalsForTable(tableId);
   currentAdminCompTableId = tableId;
   const tableName = totals.session?.tableName || totals.table?.name || 'Mesa';
@@ -1431,6 +1442,7 @@ async function submitAdminComplimentary() {
   const reason = document.getElementById('adminCompReason')?.value || '';
   if (!itemId) return toast('Selecciona un producto');
   try {
+    legacyVisibleLog('enviando request cortesia');
     await api(`/api/admin/tables/${currentAdminCompTableId}/complimentary-item`, {
       method: 'POST',
       body: JSON.stringify({
@@ -1440,10 +1452,12 @@ async function submitAdminComplimentary() {
         idempotency_key: `comp-${currentAdminCompTableId}-${itemId}-${Date.now()}`
       })
     });
+    legacyVisibleLog('respuesta backend cortesia OK');
     closeAdminComplimentaryModal();
     toast('Cortesía enviada a producción');
     await loadData(false);
   } catch (error) {
+    legacyVisibleLog(`respuesta backend cortesia ERROR: ${error.message}`);
     toast(error.message);
   }
 }
@@ -1505,6 +1519,7 @@ function renderAdminPaymentPreview() {
 }
 
 function openAdminPaymentModal(tableId) {
+  legacyVisibleLog('click pago detectado');
   const totals = adminBillTotalsForTable(tableId);
   if (!totals.lines.length) return toast('Esa mesa aún no tiene productos');
   currentAdminPaymentTableId = tableId;
@@ -1530,6 +1545,7 @@ async function submitAdminPayment() {
   if (amounts.insufficient) return toast('Monto insuficiente');
   if (amounts.invalidOverpay) return toast('Captura total exacto o registra propina');
   try {
+    legacyVisibleLog('enviando request pago');
     await api(`/api/admin/tables/${currentAdminPaymentTableId}/payment`, {
       method: 'POST',
       body: JSON.stringify({
@@ -1540,10 +1556,12 @@ async function submitAdminPayment() {
         note: document.getElementById('adminPaymentNote')?.value || ''
       })
     });
+    legacyVisibleLog('respuesta backend pago OK');
     closeAdminPaymentModal();
     toast('Pago registrado y mesa cerrada');
     await loadData(false);
   } catch (error) {
+    legacyVisibleLog(`respuesta backend pago ERROR: ${error.message}`);
     toast(error.message);
   }
 }

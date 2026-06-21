@@ -675,8 +675,8 @@
       <div id="adminDiscountPreview" class="list" style="margin-top:14px;"></div>
 
       <div class="inline-actions end" style="margin-top:16px;">
-        <button class="btn ghost" onclick="closeAdminDiscountModal()">Cancelar</button>
-        <button class="btn secondary" id="adminDiscountSubmitBtn" data-legacy-action="submit-discount" onclick="submitAdminDiscount()">Aplicar</button>
+        <button class="btn ghost" type="button" onclick="closeAdminDiscountModal()">Cancelar</button>
+        <button class="btn secondary" id="adminDiscountSubmitBtn" type="button" data-legacy-action="submit-discount" onclick="submitAdminDiscount()">Aplicar</button>
       </div>
     </div>
   </div>
@@ -705,8 +705,8 @@
       </div>
 
       <div class="inline-actions end" style="margin-top:16px;">
-        <button class="btn ghost" onclick="closeAdminComplimentaryModal()">Cancelar</button>
-        <button class="btn secondary" onclick="submitAdminComplimentary()">Enviar</button>
+        <button class="btn ghost" type="button" onclick="closeAdminComplimentaryModal()">Cancelar</button>
+        <button class="btn secondary" id="adminComplimentarySubmitBtn" type="button" data-legacy-action="submit-complimentary" onclick="submitAdminComplimentary()">Enviar</button>
       </div>
     </div>
   </div>
@@ -751,14 +751,14 @@
       <div id="adminPaymentPreview" class="list" style="margin-top:14px;"></div>
 
       <div class="inline-actions end" style="margin-top:16px;">
-        <button class="btn ghost" onclick="closeAdminPaymentModal()">Cancelar</button>
-        <button class="btn success" id="adminPaymentSubmitBtn" data-legacy-action="submit-payment" onclick="submitAdminPayment()">Confirmar pago</button>
+        <button class="btn ghost" type="button" onclick="closeAdminPaymentModal()">Cancelar</button>
+        <button class="btn success" id="adminPaymentSubmitBtn" type="button" data-legacy-action="submit-payment" onclick="submitAdminPayment()">Confirmar pago</button>
       </div>
     </div>
   </div>
 
 
-  <script src="/admin-legacy-compat.js?v=0.9.24"></script>
+  <script src="/admin-legacy-compat.js?v=0.9.25"></script>
   <script src="/aurea-print-bridge.js?v=0.9.23"></script>
   <script src="/admin.js?v=0.9.23"></script>
 </body>
