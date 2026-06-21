@@ -1125,15 +1125,56 @@ function renderActiveSessions() {
   `).join('\n');
 }
 
+function productionTipPaymentsToday() {
+  const date = todayBusinessDate();
+  return (db.payments || []).filter(payment => (
+    payment.status === 'approved'
+    && Number(payment.tipAmount || 0) > 0
+    && (payment.businessDate || itemBusinessDate(payment.approvedAt || payment.createdAt)) === date
+  ));
+}
+
+function paymentStaffForProduction(payment) {
+  const session = (db.tableSessions || []).find(item => item.id === payment.sessionId);
+  const closure = (db.tableClosures || []).find(item => item.paymentId === payment.id || item.sessionId === payment.sessionId);
+  return {
+    id: closure?.assignedStaffId || session?.assignedStaffId || '',
+    name: closure?.assignedStaffName || session?.assignedStaffName || ''
+  };
+}
+
+function productionTipsForStaff(stat) {
+  return productionTipPaymentsToday().reduce((sum, payment) => {
+    const staff = paymentStaffForProduction(payment);
+    const sameId = stat.staffId && staff.id && stat.staffId === staff.id;
+    const sameName = stat.name && staff.name && String(stat.name).toLowerCase() === String(staff.name).toLowerCase();
+    return sameId || sameName ? sum + Number(payment.tipAmount || 0) : sum;
+  }, 0);
+}
+
+function productionTipsTotalToday() {
+  return productionTipPaymentsToday().reduce((sum, payment) => sum + Number(payment.tipAmount || 0), 0);
+}
+
 function renderStaffStats() {
   const el = document.getElementById('staffStatsList');
   if (!el) return;
   const stats = db.staffStats || [];
+  const tipsSummary = `
+    <div class="item">
+      <div class="item-main">
+        <div class="item-title">Propinas hoy</div>
+        <div class="staff-metrics">
+          <span><strong>${money(productionTipsTotalToday())}</strong> registradas</span>
+        </div>
+      </div>
+    </div>
+  `;
   if (stats.length === 0) {
-    el.innerHTML = '<div class="item"><div>No hay estadísticas todavía.</div></div>';
+    el.innerHTML = `${tipsSummary}<div class="item"><div>No hay estadisticas todavia.</div></div>`;
     return;
   }
-  el.innerHTML = stats.map(stat => `
+  el.innerHTML = tipsSummary + stats.map(stat => `
     <div class="item staff-stat-card">
       <div class="item-main">
         <div class="item-title">${escapeHtml(stat.name)} · ${escapeHtml(stat.role || 'Mesero')}</div>
@@ -1143,6 +1184,7 @@ function renderStaffStats() {
           <span><strong>${stat.deliveredOrders}</strong> entregadas</span>
           <span><strong>${stat.vipCaptured}</strong> Clientes captados</span>
           <span><strong>${money(stat.totalSales)}</strong> venta registrada</span>
+          <span><strong>${money(productionTipsForStaff(stat))}</strong> propinas hoy</span>
           <span>Tomar mesa: <strong>${metric(stat.avgTakeMinutes, ' min')}</strong></span>
           <span>Confirmar: <strong>${metric(stat.avgConfirmMinutes, ' min')}</strong></span>
           <span>Entregar: <strong>${metric(stat.avgDeliveryMinutes, ' min')}</strong></span>
