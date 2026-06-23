@@ -8,6 +8,12 @@
   var legacyComplimentaryTableId = '';
   var legacyPaymentTotal = 0;
   var legacyPaymentTotalKnown = false;
+  var legacyPaymentTableLabel = 'Mesa';
+  var legacyPaymentLines = [];
+  var legacyPaymentDiscountPercent = 0;
+  var legacyPaymentDiscountAmount = 0;
+  var legacyPaymentSubmitting = false;
+  var legacyPaymentDirty = false;
 
   function log(message, detail) {
     var entry = {
@@ -308,6 +314,85 @@
       + '</select></label>';
   }
 
+  function roundMoney(value) {
+    return Math.round((toNumber(value) + 0.000001) * 100) / 100;
+  }
+
+  function compactText(value) {
+    return String(value == null ? '' : value).replace(/\s+/g, ' ').replace(/^\s+|\s+$/g, '');
+  }
+
+  function paymentLineSubtotal(line) {
+    return roundMoney(toNumber(line.price) * toNumber(line.qty));
+  }
+
+  function paymentSubtotal() {
+    var subtotal = 0;
+    for (var i = 0; i < legacyPaymentLines.length; i += 1) {
+      if (!legacyPaymentLines[i].remove) subtotal += paymentLineSubtotal(legacyPaymentLines[i]);
+    }
+    return roundMoney(subtotal);
+  }
+
+  function paymentTotalFromSubtotal(subtotal) {
+    var discount = Math.min(subtotal, roundMoney(subtotal * (legacyPaymentDiscountPercent / 100)));
+    legacyPaymentDiscountAmount = discount;
+    return Math.max(0, roundMoney(subtotal - discount));
+  }
+
+  function inputNumber(id) {
+    var el = byId(id);
+    return el ? toNumber(el.value) : 0;
+  }
+
+  function textLine(left, right, width) {
+    var l = String(left || '');
+    var r = String(right || '');
+    var space = Math.max(1, Number(width || 32) - l.length - r.length);
+    return l + Array(space + 1).join(' ') + r;
+  }
+
+  function simpleTicketText(calc, payment) {
+    var width = 32;
+    var lines = [];
+    lines.push('          AUREA');
+    lines.push('--------------------------------');
+    lines.push('TICKET FINAL');
+    lines.push(compactText(legacyPaymentTableLabel || 'Mesa'));
+    lines.push(new Date().toLocaleString ? new Date().toLocaleString() : String(new Date()));
+    lines.push('--------------------------------');
+    for (var i = 0; i < legacyPaymentLines.length; i += 1) {
+      var line = legacyPaymentLines[i];
+      if (line.remove) continue;
+      lines.push(textLine(String(line.qty) + 'x ' + compactText(line.name || 'Producto').slice(0, 18), money(paymentLineSubtotal(line)), width));
+      if (line.note) lines.push('  Nota: ' + compactText(line.note).slice(0, 24));
+    }
+    lines.push('--------------------------------');
+    lines.push(textLine('Subtotal', money(calc.subtotal), width));
+    if (legacyPaymentDiscountAmount > 0 || legacyPaymentDiscountPercent > 0) {
+      lines.push(textLine('Desc. ' + legacyPaymentDiscountPercent + '%', '-' + money(legacyPaymentDiscountAmount), width));
+    }
+    lines.push(textLine('Total', money(calc.total), width));
+    lines.push('--------------------------------');
+    lines.push('Metodo: ' + calc.methodLabel);
+    if (calc.cash > 0) lines.push(textLine('Efectivo', money(calc.cash), width));
+    if (calc.card > 0) lines.push(textLine('Tarjeta', money(calc.card), width));
+    if (calc.transfer > 0) lines.push(textLine('Transfer.', money(calc.transfer), width));
+    if (calc.other > 0) lines.push(textLine('Otro', money(calc.other), width));
+    lines.push(textLine('Cubierto', money(calc.covered), width));
+    if (calc.change > 0) lines.push(textLine('FERIA', money(calc.change), width));
+    if (calc.diners > 0) {
+      lines.push('Comensales: ' + calc.diners);
+      lines.push(textLine('Por comensal', money(calc.perDiner), width));
+    }
+    if (payment && payment.id) lines.push('Pago: ' + String(payment.id).slice(0, 24));
+    lines.push('--------------------------------');
+    lines.push('Gracias por su preferencia');
+    lines.push('');
+    lines.push('');
+    return lines.join('\n');
+  }
+
   function afterEmergencySuccess(message) {
     visibleLog(message);
     closeEmergencyPanel();
@@ -366,62 +451,328 @@
   function openPaymentEmergency(tableId, button) {
     var tableLabel = tableLabelFromButton(button, 'Mesa');
     legacyPaymentTableId = tableId;
+    legacyPaymentTableLabel = tableLabel;
+    legacyPaymentLines = [];
     legacyPaymentTotal = 0;
     legacyPaymentTotalKnown = false;
+    legacyPaymentDiscountPercent = 0;
+    legacyPaymentDiscountAmount = 0;
+    legacyPaymentSubmitting = false;
+    legacyPaymentDirty = false;
     showEmergencyPanel(
       'Ingresar pago',
       tableLabel,
-      '<div id="emPaymentTotal" style="padding:10px;border:1px solid #5b4a20;border-radius:8px;background:#2a2414;color:#f3d987;font-weight:900;">Total: pendiente de validar</div>'
-        + emergencySelect('Metodo', 'emPaymentMethod', '<option value="cash">Efectivo</option><option value="card">Tarjeta</option><option value="transfer">Transferencia</option><option value="courtesy">Cortesia / descuento total</option>')
-        + emergencyField('Monto recibido', 'emPaymentReceived', 'number', '', 'min="0" step="0.01" placeholder="Ej. 500"')
-        + '<label style="display:flex;gap:8px;align-items:center;margin:12px 0 0;font-weight:800;"><input id="emPaymentTipFromChange" type="checkbox" /> Registrar excedente como propina</label>'
-        + emergencyField('Nota opcional', 'emPaymentNote', 'text', '', 'placeholder="voucher, autorizacion..."'),
-      'Confirmar pago',
+      '<div id="emPaymentStatus" style="padding:10px;border:1px solid #5b4a20;border-radius:8px;background:#2a2414;color:#f3d987;font-weight:900;">Cargando cuenta...</div>'
+        + '<div id="emPaymentAccount" style="margin-top:12px;"></div>'
+        + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px;">'
+        + emergencyButton('Editar cuenta', 'emToggleEdit', '')
+        + emergencyButton('Guardar cambios', 'emSaveAccount', 'success')
+        + '</div>'
+        + emergencyField('Dividir entre comensales', 'emDinersCount', 'number', '', 'min="0" step="1" placeholder="Ej. 4"')
+        + '<div id="emPerDiner" style="margin-top:8px;color:#d8c58a;font-weight:900;"></div>'
+        + emergencySelect('Tipo de pago', 'emPaymentMode', '<option value="single">Metodo unico</option><option value="mixed">Pago mixto</option>')
+        + '<div id="emSinglePay">'
+        + emergencySelect('Metodo', 'emPaymentMethod', '<option value="cash">Efectivo</option><option value="card">Tarjeta</option><option value="transfer">Transferencia</option><option value="other">Otro</option><option value="courtesy">Cortesia / descuento total</option>')
+        + emergencyField('Recibido', 'emPaymentReceived', 'number', '', 'min="0" step="0.01" placeholder="Ej. 500"')
+        + '</div>'
+        + '<div id="emMixedPay" style="display:none;">'
+        + emergencyField('Efectivo recibido', 'emCashAmount', 'number', '', 'min="0" step="0.01"')
+        + emergencyField('Tarjeta', 'emCardAmount', 'number', '', 'min="0" step="0.01"')
+        + emergencyField('Transferencia', 'emTransferAmount', 'number', '', 'min="0" step="0.01"')
+        + emergencyField('Otro', 'emOtherAmount', 'number', '', 'min="0" step="0.01"')
+        + '</div>'
+        + emergencyField('Nota opcional', 'emPaymentNote', 'text', '', 'placeholder="voucher, autorizacion..."')
+        + '<div id="emPaymentSummary" style="margin-top:14px;padding:12px;border-radius:10px;background:#101113;border:1px solid #4a4a4f;"></div>',
+      'Confirmar e imprimir ticket',
       submitPaymentEmergency
     );
+    bindAdvancedPaymentInputs();
+    renderAdvancedPaymentPanel();
     xhrJson('GET', '/api/admin/legacy-data?ts=' + new Date().getTime(), null, function (data) {
       legacyDb = data;
-      var totals = billTotalsForTable(data, tableId);
-      var totalBox = byId('emPaymentTotal');
-      if (totals && totals.lines && totals.lines.length) {
-        legacyPaymentTotal = totals.total;
-        legacyPaymentTotalKnown = true;
-        if (totalBox) totalBox.innerHTML = 'Total: ' + money(totals.total);
-        if (byId('emPaymentReceived') && !byId('emPaymentReceived').value) byId('emPaymentReceived').value = String(totals.total || 0);
-        if (totals.total <= 0 && byId('emPaymentMethod')) byId('emPaymentMethod').value = 'courtesy';
-      } else if (totalBox) {
-        totalBox.innerHTML = 'Total: el servidor validara al confirmar';
-      }
-    }, function () {
-      var totalBox = byId('emPaymentTotal');
-      if (totalBox) totalBox.innerHTML = 'Total: el servidor validara al confirmar';
+      loadAdvancedPaymentData(data, tableId);
+      renderAdvancedPaymentPanel();
+    }, function (error) {
+      var status = byId('emPaymentStatus');
+      if (status) status.innerHTML = 'No pude cargar cuenta: ' + escapeText(error.message);
+      updateAdvancedPaymentSummary();
     });
   }
 
-  function submitPaymentEmergency() {
-    var method = byId('emPaymentMethod') ? byId('emPaymentMethod').value : 'cash';
-    var receivedRaw = byId('emPaymentReceived') ? byId('emPaymentReceived').value : '';
-    var received = toNumber(receivedRaw);
-    var useTip = byId('emPaymentTipFromChange') && byId('emPaymentTipFromChange').checked && legacyPaymentTotalKnown && legacyPaymentTotal > 0;
-    var tipAmount = useTip ? Math.max(0, received - legacyPaymentTotal) : 0;
-    if (legacyPaymentTotalKnown && legacyPaymentTotal <= 0) {
-      method = 'courtesy';
-      received = 0;
-    } else if (receivedRaw === '') {
-      return visibleLog('Captura monto recibido');
+  function bindAdvancedPaymentInputs() {
+    var ids = ['emDinersCount', 'emPaymentMode', 'emPaymentMethod', 'emPaymentReceived', 'emCashAmount', 'emCardAmount', 'emTransferAmount', 'emOtherAmount'];
+    for (var i = 0; i < ids.length; i += 1) {
+      addLegacyListener(ids[i], 'input', updateAdvancedPaymentSummary);
+      addLegacyListener(ids[i], 'change', updateAdvancedPaymentSummary);
     }
-    visibleLog('enviando pago');
-    xhrJson('POST', '/api/admin/tables/' + legacyPaymentTableId + '/payment', {
-      method: method,
-      amountPaid: received,
-      tipAmount: tipAmount,
-      closeTable: true,
-      note: byId('emPaymentNote') ? byId('emPaymentNote').value : ''
+    if (byId('emToggleEdit')) byId('emToggleEdit').onclick = togglePaymentEditMode;
+    if (byId('emSaveAccount')) byId('emSaveAccount').onclick = saveEmergencyAccountChanges;
+  }
+
+  function loadAdvancedPaymentData(data, tableId) {
+    var totals = billTotalsForTable(data, tableId);
+    var payment = totals.payment || {};
+    legacyPaymentLines = [];
+    legacyPaymentDiscountPercent = toNumber(payment.discountPercent || totals.discountPercent || 0);
+    legacyPaymentDiscountAmount = toNumber(payment.discountAmount || totals.discountAmount || 0);
+    for (var i = 0; i < (data.orders || []).length; i += 1) {
+      var order = data.orders[i];
+      if (order.tableId !== tableId) continue;
+      if (order.status === 'cancelled' || order.closedWithTable === true) continue;
+      var items = order.items || [];
+      for (var j = 0; j < items.length; j += 1) {
+        var item = items[j];
+        legacyPaymentLines.push({
+          orderId: item.orderId || order.id,
+          itemIndex: item.itemIndex !== undefined ? item.itemIndex : j,
+          name: item.name || 'Producto',
+          qty: toNumber(item.qty || item.quantity || 0),
+          price: toNumber(item.price || 0),
+          note: item.note || '',
+          modifierName: item.modifierName || '',
+          complimentary: Boolean(item.complimentary),
+          remove: false
+        });
+      }
+    }
+    legacyPaymentTotal = totals.total;
+    legacyPaymentTotalKnown = true;
+    legacyPaymentDirty = false;
+    var session = activeSessionForTable(data, tableId);
+    if (session && session.dinersCount && byId('emDinersCount')) byId('emDinersCount').value = String(session.dinersCount);
+    if (byId('emPaymentReceived') && !byId('emPaymentReceived').value) byId('emPaymentReceived').value = String(totals.total || 0);
+  }
+
+  function renderAdvancedPaymentPanel() {
+    renderPaymentAccountLines(false);
+    updateAdvancedPaymentSummary();
+  }
+
+  function renderPaymentAccountLines(editing) {
+    var box = byId('emPaymentAccount');
+    var status = byId('emPaymentStatus');
+    var html = '';
+    var subtotal = paymentSubtotal();
+    var total = paymentTotalFromSubtotal(subtotal);
+    legacyPaymentTotal = total;
+    if (status) {
+      status.innerHTML = 'Total a pagar: <span style="font-size:24px;">' + money(total) + '</span>';
+    }
+    if (!box) return;
+    if (!legacyPaymentLines.length) {
+      box.innerHTML = '<div style="padding:10px;border:1px solid #5b4a20;border-radius:8px;color:#f3d987;">Sin productos cargados todavia.</div>';
+      return;
+    }
+    html += '<div style="font-weight:900;margin-bottom:8px;">Resumen editable de cuenta</div>';
+    for (var i = 0; i < legacyPaymentLines.length; i += 1) {
+      var line = legacyPaymentLines[i];
+      var opacity = line.remove ? '.45' : '1';
+      html += '<div style="opacity:' + opacity + ';border:1px solid #3e3e45;border-radius:8px;padding:10px;margin:8px 0;background:#202126;">'
+        + '<div style="font-weight:900;">' + escapeText(line.name) + '</div>'
+        + '<div style="color:#d8c58a;margin-top:3px;">' + money(line.price) + ' c/u · Subtotal ' + money(paymentLineSubtotal(line)) + '</div>';
+      if (editing) {
+        html += '<div style="display:grid;grid-template-columns:80px 1fr;gap:8px;margin-top:8px;">'
+          + '<label>Cant.<input id="emLineQty' + i + '" type="number" min="0" step="1" value="' + escapeText(line.qty) + '" style="width:100%;padding:10px;border-radius:7px;border:1px solid #555;font-size:17px;box-sizing:border-box;" /></label>'
+          + '<label>Nota<input id="emLineNote' + i + '" type="text" value="' + escapeText(line.note || '') + '" style="width:100%;padding:10px;border-radius:7px;border:1px solid #555;font-size:17px;box-sizing:border-box;" /></label>'
+          + '</div>'
+          + '<label style="display:flex;gap:8px;align-items:center;margin-top:8px;"><input id="emLineRemove' + i + '" type="checkbox" ' + (line.remove ? 'checked' : '') + ' /> Eliminar producto</label>';
+      } else if (line.note) {
+        html += '<div style="color:#ddd;margin-top:4px;">Nota: ' + escapeText(line.note) + '</div>';
+      }
+      html += '</div>';
+    }
+    html += '<div style="margin-top:8px;border-top:1px solid #555;padding-top:8px;">Subtotal: <strong>' + money(subtotal) + '</strong>'
+      + (legacyPaymentDiscountAmount > 0 || legacyPaymentDiscountPercent > 0 ? '<br>Descuento ' + legacyPaymentDiscountPercent + '%: <strong>-' + money(legacyPaymentDiscountAmount) + '</strong>' : '')
+      + '<br>Total: <strong>' + money(total) + '</strong></div>';
+    box.innerHTML = html;
+    if (byId('emSaveAccount')) byId('emSaveAccount').style.display = editing ? 'block' : 'none';
+    if (editing) {
+      for (var j = 0; j < legacyPaymentLines.length; j += 1) {
+        addLegacyListener('emLineQty' + j, 'input', syncPaymentLineEdits);
+        addLegacyListener('emLineNote' + j, 'input', syncPaymentLineEdits);
+        addLegacyListener('emLineRemove' + j, 'change', syncPaymentLineEdits);
+      }
+    }
+  }
+
+  function togglePaymentEditMode() {
+    var box = byId('emPaymentAccount');
+    var editing = !(box && box.getAttribute && box.getAttribute('data-editing') === '1');
+    if (box && box.setAttribute) box.setAttribute('data-editing', editing ? '1' : '0');
+    renderPaymentAccountLines(editing);
+    updateAdvancedPaymentSummary();
+  }
+
+  function syncPaymentLineEdits() {
+    for (var i = 0; i < legacyPaymentLines.length; i += 1) {
+      if (byId('emLineQty' + i)) legacyPaymentLines[i].qty = Math.max(0, Math.min(99, Math.floor(toNumber(byId('emLineQty' + i).value))));
+      if (byId('emLineNote' + i)) legacyPaymentLines[i].note = byId('emLineNote' + i).value;
+      if (byId('emLineRemove' + i)) legacyPaymentLines[i].remove = byId('emLineRemove' + i).checked;
+    }
+    legacyPaymentDirty = true;
+    updateAdvancedPaymentSummary();
+  }
+
+  function saveEmergencyAccountChanges() {
+    syncPaymentLineEdits();
+    visibleLog('guardando cambios cuenta');
+    xhrJson('PATCH', '/api/admin/tables/' + legacyPaymentTableId + '/account-lines', {
+      lines: legacyPaymentLines
     }, function () {
+      visibleLog('cambios guardados OK');
+      xhrJson('GET', '/api/admin/legacy-data?ts=' + new Date().getTime(), null, function (data) {
+        legacyDb = data;
+        loadAdvancedPaymentData(data, legacyPaymentTableId);
+        legacyPaymentDirty = false;
+        var box = byId('emPaymentAccount');
+        if (box && box.setAttribute) box.setAttribute('data-editing', '0');
+        renderAdvancedPaymentPanel();
+      }, function (error) {
+        visibleLog('guardado OK, pero no recargue cuenta: ' + error.message);
+      });
+    }, function (error) {
+      visibleLog('error guardando cuenta: ' + error.message);
+    });
+  }
+
+  function advancedPaymentCalc() {
+    var subtotal = paymentSubtotal();
+    var total = paymentTotalFromSubtotal(subtotal);
+    var mode = byId('emPaymentMode') ? byId('emPaymentMode').value : 'single';
+    var method = byId('emPaymentMethod') ? byId('emPaymentMethod').value : 'cash';
+    var cash = 0;
+    var card = 0;
+    var transfer = 0;
+    var other = 0;
+    var methodLabel = 'Efectivo';
+    if (mode === 'mixed') {
+      method = 'mixed';
+      methodLabel = 'Pago mixto';
+      cash = inputNumber('emCashAmount');
+      card = inputNumber('emCardAmount');
+      transfer = inputNumber('emTransferAmount');
+      other = inputNumber('emOtherAmount');
+    } else if (method === 'cash') {
+      cash = inputNumber('emPaymentReceived');
+      methodLabel = 'Efectivo';
+    } else if (method === 'card') {
+      card = inputNumber('emPaymentReceived');
+      methodLabel = 'Tarjeta';
+    } else if (method === 'transfer') {
+      transfer = inputNumber('emPaymentReceived');
+      methodLabel = 'Transferencia';
+    } else if (method === 'other') {
+      other = inputNumber('emPaymentReceived');
+      methodLabel = 'Otro';
+    } else if (method === 'courtesy') {
+      methodLabel = 'Cortesia';
+    }
+    var nonCash = roundMoney(card + transfer + other);
+    var covered = roundMoney(cash + nonCash);
+    var missing = Math.max(0, roundMoney(total - covered));
+    var change = cash > 0 && covered > total ? roundMoney(covered - total) : 0;
+    var nonCashOver = nonCash > total + 0.001;
+    var diners = Math.max(0, Math.min(40, Math.floor(inputNumber('emDinersCount'))));
+    var perDiner = diners > 0 ? roundMoney(total / diners) : 0;
+    return {
+      subtotal: subtotal,
+      total: total,
+      mode: mode,
+      method: method,
+      methodLabel: methodLabel,
+      cash: cash,
+      card: card,
+      transfer: transfer,
+      other: other,
+      nonCash: nonCash,
+      covered: covered,
+      missing: missing,
+      change: change,
+      nonCashOver: nonCashOver,
+      diners: diners,
+      perDiner: perDiner
+    };
+  }
+
+  function updateAdvancedPaymentSummary() {
+    var calc = advancedPaymentCalc();
+    var mixed = byId('emPaymentMode') && byId('emPaymentMode').value === 'mixed';
+    if (byId('emSinglePay')) byId('emSinglePay').style.display = mixed ? 'none' : 'block';
+    if (byId('emMixedPay')) byId('emMixedPay').style.display = mixed ? 'block' : 'none';
+    if (byId('emPerDiner')) byId('emPerDiner').innerHTML = calc.diners > 0 ? 'Total por comensal: ' + money(calc.perDiner) : '';
+    var summary = byId('emPaymentSummary');
+    var primary = byId('aureaEmergencyPrimary');
+    var canPay = legacyPaymentTotalKnown && calc.total >= 0 && calc.missing <= 0.001 && !calc.nonCashOver && !legacyPaymentSubmitting && !legacyPaymentDirty;
+    if (calc.method === 'courtesy' && calc.total > 0.001) canPay = false;
+    if (summary) {
+      summary.innerHTML =
+        '<div style="font-size:16px;">Total a pagar</div>'
+        + '<div style="font-size:30px;font-weight:900;color:#f3d987;">' + money(calc.total) + '</div>'
+        + '<div style="margin-top:8px;">Total cubierto: <strong>' + money(calc.covered) + '</strong></div>'
+        + (calc.missing > 0 ? '<div style="margin-top:8px;color:#ffb4b4;font-size:22px;font-weight:900;">Faltan: ' + money(calc.missing) + '</div>' : '')
+        + (calc.change > 0 ? '<div style="margin-top:8px;color:#5fd27a;font-size:28px;font-weight:900;">Feria: ' + money(calc.change) + '</div>' : '')
+        + (legacyPaymentDirty ? '<div style="margin-top:8px;color:#ffb4b4;font-weight:900;">Guarda los cambios de cuenta antes de cobrar.</div>' : '')
+        + (calc.nonCashOver ? '<div style="margin-top:8px;color:#ffb4b4;font-weight:900;">Tarjeta/transferencia/otro no pueden exceder el total.</div>' : '')
+        + (calc.method === 'courtesy' && calc.total > 0.001 ? '<div style="margin-top:8px;color:#ffb4b4;font-weight:900;">Cortesia solo cierra cuentas en $0.</div>' : '')
+        + '<div style="margin-top:8px;color:#d8c58a;">Metodo: ' + escapeText(calc.methodLabel) + '</div>';
+    }
+    if (primary) {
+      primary.disabled = !canPay;
+      primary.style.opacity = canPay ? '1' : '.45';
+    }
+  }
+
+  function submitPaymentEmergency() {
+    var calc = advancedPaymentCalc();
+    var primary = byId('aureaEmergencyPrimary');
+    var payload;
+    if (legacyPaymentSubmitting) return;
+    updateAdvancedPaymentSummary();
+    if (primary && primary.disabled) return visibleLog('Pago incompleto o invalido');
+    legacyPaymentSubmitting = true;
+    if (primary) primary.disabled = true;
+    payload = {
+      method: calc.method,
+      cashAmount: calc.cash,
+      cardAmount: calc.card,
+      transferAmount: calc.transfer,
+      otherAmount: calc.other,
+      amountPaid: calc.covered,
+      closeTable: true,
+      dinersCount: calc.diners,
+      totalPerDiner: calc.perDiner,
+      note: byId('emPaymentNote') ? byId('emPaymentNote').value : ''
+    };
+    visibleLog('enviando pago');
+    xhrJson('POST', '/api/admin/tables/' + legacyPaymentTableId + '/payment', payload, function (data) {
+      var payment = data && data.payment ? data.payment : {};
+      printFinalTicketOnce(calc, payment);
       afterEmergencySuccess('pago registrado OK');
     }, function (error) {
+      legacyPaymentSubmitting = false;
+      if (primary) primary.disabled = false;
       visibleLog('error pago: ' + error.message);
     });
+  }
+
+  function printFinalTicketOnce(calc, payment) {
+    var key = payment && payment.id ? payment.id : (legacyPaymentTableId + '-' + new Date().getTime());
+    var storageKey = 'aurea_final_ticket_printed_' + key;
+    var text;
+    try {
+      if (window.localStorage && localStorage.getItem(storageKey)) return;
+      text = simpleTicketText(calc, payment);
+      if (window.AureaPrintBridge && window.AureaPrintBridge.printTextIfBridge && window.AureaPrintBridge.printTextIfBridge(text, { feedDots: 320 })) {
+        if (window.localStorage) localStorage.setItem(storageKey, '1');
+        return;
+      }
+      if (window.AureaPrintBridge && window.AureaPrintBridge.printText && window.AureaPrintBridge.printText(text, { feedDots: 320 })) {
+        if (window.localStorage) localStorage.setItem(storageKey, '1');
+        return;
+      }
+    } catch (error) {
+      visibleLog('pago OK, ticket no automatico: ' + (error.message || error));
+    }
   }
 
   function openComplimentaryEmergency(tableId, button) {

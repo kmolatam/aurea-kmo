@@ -789,6 +789,13 @@ function normalizePaymentInput(db, tableId, payload = {}) {
     totalPaid = totalDue;
   }
 
+  const nonCashAmount = roundMoney(cardAmount + transferAmount + otherAmount);
+  const changeAmount = ['cash', 'mixed', 'split'].includes(method) && cashAmount > 0
+    ? Math.max(0, roundMoney(totalPaid - totalDue))
+    : 0;
+  const dinersCount = Math.max(0, Math.min(40, Math.floor(cleanNumber(payload.dinersCount, 0))));
+  const totalPerDiner = dinersCount > 0 ? roundMoney(totalDue / dinersCount) : 0;
+
   if ((payload.status === 'approved' || payload.closeTable === true) && totalPaid + 0.001 < totalDue) {
     const err = new Error('Monto recibido insuficiente para cerrar la cuenta');
     err.status = 400;
@@ -799,8 +806,13 @@ function normalizePaymentInput(db, tableId, payload = {}) {
     err.status = 400;
     throw err;
   }
-  if ((payload.status === 'approved' || payload.closeTable === true) && method !== 'cash' && totalPaid > totalDue + 0.001) {
-    const err = new Error('En tarjeta o transferencia captura el total exacto o registra propina');
+  if ((payload.status === 'approved' || payload.closeTable === true) && ['card', 'transfer', 'other'].includes(method) && totalPaid > totalDue + 0.001) {
+    const err = new Error('En tarjeta o transferencia captura el total exacto');
+    err.status = 400;
+    throw err;
+  }
+  if ((payload.status === 'approved' || payload.closeTable === true) && ['mixed', 'split'].includes(method) && nonCashAmount > totalDue + 0.001) {
+    const err = new Error('Tarjeta/transferencia/otro no pueden exceder el total. El cambio solo sale del efectivo.');
     err.status = 400;
     throw err;
   }
@@ -819,7 +831,9 @@ function normalizePaymentInput(db, tableId, payload = {}) {
     transferAmount,
     otherAmount,
     totalPaid,
-    changeAmount: method === 'cash' ? Math.max(0, roundMoney(totalPaid - totalDue)) : 0,
+    changeAmount,
+    dinersCount,
+    totalPerDiner,
     discountReason,
     note: cleanString(payload.note || payload.notes || '', 300)
   };
@@ -889,11 +903,18 @@ function upsertSessionPayment(db, tableId, session, payload = {}, actor = {}) {
     otherAmount: normalized.otherAmount,
     totalPaid: normalized.totalPaid,
     changeAmount: normalized.changeAmount,
+    dinersCount: normalized.dinersCount,
+    totalPerDiner: normalized.totalPerDiner,
     note: normalized.note,
     status: payload.status || payment.status || 'pending_admin',
     businessDate: payload.businessDate || payment.businessDate || businessDate(now),
     updatedAt: now
   });
+
+  if (session && normalized.dinersCount > 0) {
+    session.dinersCount = normalized.dinersCount;
+    session.totalPerDiner = normalized.totalPerDiner;
+  }
   if (normalized.discountPercent > 0 && discountChanged) {
     payment.discountAudit = {
       tableId,
@@ -1481,6 +1502,9 @@ function closeTableSession(db, tableId, staff = null, options = {}) {
     paymentMethodLabel: payment?.methodLabel || '',
     paymentTotalDue: payment?.totalDue || 0,
     paymentTotalPaid: payment?.totalPaid || 0,
+    changeAmount: payment?.changeAmount || 0,
+    dinersCount: payment?.dinersCount || session.dinersCount || 0,
+    totalPerDiner: payment?.totalPerDiner || session.totalPerDiner || 0,
     tipAmount: payment?.tipAmount || 0,
     propina: payment?.tipAmount || 0,
     discountPercent: payment?.discountPercent || 0,
@@ -3076,13 +3100,19 @@ app.get('/api/admin/legacy-data', requireLogin, (req, res) => {
       tableName: order.tableName,
       sessionId: order.sessionId || '',
       status: order.status,
-      items: (order.items || []).map(item => ({
+      items: (order.items || []).map((item, itemIndex) => ({
+        orderId: order.id,
+        itemIndex,
         itemId: item.itemId || '',
         name: item.name || 'Producto',
         qty: item.qty || item.quantity || 0,
         quantity: item.quantity || item.qty || 0,
         price: item.price || 0,
-        subtotal: item.subtotal || 0
+        subtotal: item.subtotal !== undefined ? item.subtotal : roundMoney(Number(item.price || 0) * Number(item.qty || item.quantity || 0)),
+        note: item.note || '',
+        modifierName: item.modifierName || '',
+        modifierGroupName: item.modifierGroupName || 'Opcion',
+        complimentary: Boolean(item.complimentary)
       }))
     }));
 
@@ -3105,6 +3135,9 @@ app.get('/api/admin/legacy-data', requireLogin, (req, res) => {
       assignedStaffId: session.assignedStaffId || '',
       assignedStaffName: session.assignedStaffName || '',
       paymentId: session.paymentId || '',
+      paymentStatus: session.paymentStatus || '',
+      dinersCount: session.dinersCount || 0,
+      totalPerDiner: session.totalPerDiner || 0,
       createdAt: session.createdAt || ''
     })),
     payments: (db.payments || [])
@@ -3118,6 +3151,14 @@ app.get('/api/admin/legacy-data', requireLogin, (req, res) => {
         discountAmount: payment.discountAmount || 0,
         discountReason: payment.discountReason || '',
         totalDue: payment.totalDue || 0,
+        totalPaid: payment.totalPaid || 0,
+        cashAmount: payment.cashAmount || 0,
+        cardAmount: payment.cardAmount || 0,
+        transferAmount: payment.transferAmount || 0,
+        otherAmount: payment.otherAmount || 0,
+        changeAmount: payment.changeAmount || 0,
+        dinersCount: payment.dinersCount || 0,
+        totalPerDiner: payment.totalPerDiner || 0,
         tipAmount: payment.tipAmount || 0,
         method: payment.method || 'pending'
       })),
@@ -3133,6 +3174,98 @@ app.get('/api/admin/legacy-data', requireLogin, (req, res) => {
         kitchenStation: item.kitchenStation || ''
       }))
   });
+});
+
+app.patch('/api/admin/tables/:tableId/account-lines', requireLogin, (req, res) => {
+  const db = readDb();
+  const session = activeSessionForTable(db, req.params.tableId);
+  if (!session) return res.status(404).json({ ok: false, message: 'No hay sesion activa en esta mesa' });
+  const existingPayment = session.paymentId
+    ? (db.payments || []).find(item => item.id === session.paymentId)
+    : (db.payments || []).find(item => item.sessionId === session.id && item.status !== 'cancelled');
+  if (session.paymentStatus === 'paid' || existingPayment?.status === 'approved') {
+    return res.status(409).json({ ok: false, message: 'La cuenta ya esta pagada/cerrada; no se puede editar' });
+  }
+
+  const rawLines = Array.isArray(req.body.lines) ? req.body.lines : [];
+  if (!rawLines.length) return res.status(400).json({ ok: false, message: 'No hay cambios para guardar' });
+
+  const activeSessionIds = new Set(activeSessionsForTable(db, req.params.tableId).map(item => item.id).filter(Boolean));
+  const grouped = new Map();
+  for (const raw of rawLines) {
+    const orderId = cleanString(raw.orderId || '', 80);
+    const itemIndex = Math.floor(Number(raw.itemIndex));
+    if (!orderId || !Number.isInteger(itemIndex) || itemIndex < 0) continue;
+    if (!grouped.has(orderId)) grouped.set(orderId, []);
+    grouped.get(orderId).push({
+      itemIndex,
+      qty: Math.max(0, Math.min(99, Math.floor(cleanNumber(raw.qty, 0)))),
+      note: cleanString(raw.note || '', 180),
+      remove: raw.remove === true || raw.remove === 'true'
+    });
+  }
+
+  const changes = [];
+  for (const [orderId, edits] of grouped.entries()) {
+    const order = (db.orders || []).find(item => item.id === orderId);
+    if (!order) continue;
+    const belongsToTable = order.tableId === req.params.tableId && order.status !== 'cancelled' && order.closedWithTable !== true;
+    const belongsToSession = order.sessionId ? activeSessionIds.has(order.sessionId) : true;
+    if (!belongsToTable || !belongsToSession) continue;
+    edits.sort((a, b) => b.itemIndex - a.itemIndex);
+    for (const edit of edits) {
+      const item = (order.items || [])[edit.itemIndex];
+      if (!item) continue;
+      const before = {
+        name: item.name || 'Producto',
+        qty: Number(item.qty || 0),
+        note: item.note || '',
+        subtotal: Number(item.subtotal || 0)
+      };
+      if (edit.remove || edit.qty <= 0) {
+        order.items.splice(edit.itemIndex, 1);
+        changes.push({ orderId, itemIndex: edit.itemIndex, action: 'remove', before });
+      } else {
+        item.qty = edit.qty;
+        item.quantity = edit.qty;
+        item.note = edit.note;
+        item.subtotal = roundMoney(Number(item.price || 0) * edit.qty);
+        changes.push({
+          orderId,
+          itemIndex: edit.itemIndex,
+          action: 'update',
+          before,
+          after: {
+            name: item.name || 'Producto',
+            qty: item.qty,
+            note: item.note || '',
+            subtotal: item.subtotal
+          }
+        });
+      }
+    }
+    order.total = roundMoney((order.items || []).reduce((sum, item) => sum + Number(item.subtotal !== undefined ? item.subtotal : Number(item.price || 0) * Number(item.qty || 0)), 0));
+    order.updatedAt = nowIso();
+    if (!order.items.length) updateOrderStatus(order, 'cancelled');
+  }
+
+  if (!changes.length) return res.status(400).json({ ok: false, message: 'No se encontraron lineas editables' });
+
+  db.auditLog = Array.isArray(db.auditLog) ? db.auditLog : [];
+  const audit = {
+    id: makeId('audit'),
+    type: 'account_edited_before_payment',
+    tableId: req.params.tableId,
+    tableName: session.tableName || '',
+    sessionId: session.id,
+    user: req.session.adminUser || 'Admin',
+    role: req.session.adminRole || 'admin',
+    changes,
+    createdAt: nowIso()
+  };
+  db.auditLog.unshift(audit);
+  writeDb(db);
+  res.json({ ok: true, audit, changes, summary: buildBillSummary(db, req.params.tableId) });
 });
 
 app.put('/api/admin/restaurant', requireLogin, (req, res) => {
