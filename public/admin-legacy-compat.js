@@ -481,7 +481,10 @@
         + emergencyField('Transferencia', 'emTransferAmount', 'number', '', 'min="0" step="0.01"')
         + emergencyField('Otro', 'emOtherAmount', 'number', '', 'min="0" step="0.01"')
         + '</div>'
-        + emergencyField('Nota opcional', 'emPaymentNote', 'text', '', 'placeholder="voucher, autorizacion..."')
+        + '<div id="emVoucherWrap" style="display:none;">'
+        + emergencyField('Folio / autorizacion del voucher', 'emCardVoucher', 'text', '', 'placeholder="Ej. 045821, AUT-1234..."')
+        + '</div>'
+        + emergencyField('Nota opcional', 'emPaymentNote', 'text', '', 'placeholder="detalle adicional..."')
         + '<div id="emPaymentSummary" style="margin-top:14px;padding:12px;border-radius:10px;background:#101113;border:1px solid #4a4a4f;"></div>',
       'Confirmar e imprimir ticket',
       submitPaymentEmergency
@@ -500,7 +503,7 @@
   }
 
   function bindAdvancedPaymentInputs() {
-    var ids = ['emDinersCount', 'emPaymentMode', 'emPaymentMethod', 'emPaymentReceived', 'emCashAmount', 'emCardAmount', 'emTransferAmount', 'emOtherAmount'];
+    var ids = ['emDinersCount', 'emPaymentMode', 'emPaymentMethod', 'emPaymentReceived', 'emCashAmount', 'emCardAmount', 'emTransferAmount', 'emOtherAmount', 'emCardVoucher'];
     for (var i = 0; i < ids.length; i += 1) {
       addLegacyListener(ids[i], 'input', updateAdvancedPaymentSummary);
       addLegacyListener(ids[i], 'change', updateAdvancedPaymentSummary);
@@ -635,11 +638,35 @@
     });
   }
 
+  function syncReceivedWithTotal(mode, method, total) {
+    // Tarjeta/transferencia/otro siempre deben cobrar el total exacto (regla del servidor).
+    // Si el monto "Recibido" se quedaba con un valor viejo (por ejemplo, despues de
+    // editar la cuenta o de cambiar el metodo), el pago se bloqueaba con el error de
+    // "no pueden exceder el total" aunque el monto mostrado pareciera correcto.
+    // Por eso aqui se mantiene ese campo siempre sincronizado con el total vigente
+    // para estos 3 metodos, y se deja bloqueado para que no se pueda desincronizar de nuevo.
+    var field = byId('emPaymentReceived');
+    if (!field) return;
+    if (mode === 'mixed') return;
+    if (method === 'card' || method === 'transfer' || method === 'other') {
+      var fixed = String(roundMoney(total));
+      if (field.value !== fixed) field.value = fixed;
+      field.readOnly = true;
+      field.style.background = '#eee';
+      field.style.color = '#333';
+    } else {
+      field.readOnly = false;
+      field.style.background = '';
+      field.style.color = '';
+    }
+  }
+
   function advancedPaymentCalc() {
     var subtotal = paymentSubtotal();
     var total = paymentTotalFromSubtotal(subtotal);
     var mode = byId('emPaymentMode') ? byId('emPaymentMode').value : 'single';
     var method = byId('emPaymentMethod') ? byId('emPaymentMethod').value : 'cash';
+    syncReceivedWithTotal(mode, method, total);
     var cash = 0;
     var card = 0;
     var transfer = 0;
@@ -674,6 +701,12 @@
     var nonCashOver = nonCash > total + 0.001;
     var diners = Math.max(0, Math.min(40, Math.floor(inputNumber('emDinersCount'))));
     var perDiner = diners > 0 ? roundMoney(total / diners) : 0;
+    // El cliente pidio que, al cobrar con tarjeta o transferencia desde "Ingresar pago",
+    // siempre se capture el folio/autorizacion del voucher antes de poder cobrar.
+    var voucherField = byId('emCardVoucher');
+    var voucher = voucherField ? compactText(voucherField.value) : '';
+    var voucherRequired = method === 'card' || method === 'transfer' || (mode === 'mixed' && (card > 0 || transfer > 0));
+    var voucherMissing = voucherRequired && !voucher;
     return {
       subtotal: subtotal,
       total: total,
@@ -690,7 +723,10 @@
       change: change,
       nonCashOver: nonCashOver,
       diners: diners,
-      perDiner: perDiner
+      perDiner: perDiner,
+      voucher: voucher,
+      voucherRequired: voucherRequired,
+      voucherMissing: voucherMissing
     };
   }
 
@@ -699,10 +735,11 @@
     var mixed = byId('emPaymentMode') && byId('emPaymentMode').value === 'mixed';
     if (byId('emSinglePay')) byId('emSinglePay').style.display = mixed ? 'none' : 'block';
     if (byId('emMixedPay')) byId('emMixedPay').style.display = mixed ? 'block' : 'none';
+    if (byId('emVoucherWrap')) byId('emVoucherWrap').style.display = calc.voucherRequired ? 'block' : 'none';
     if (byId('emPerDiner')) byId('emPerDiner').innerHTML = calc.diners > 0 ? 'Total por comensal: ' + money(calc.perDiner) : '';
     var summary = byId('emPaymentSummary');
     var primary = byId('aureaEmergencyPrimary');
-    var canPay = legacyPaymentTotalKnown && calc.total >= 0 && calc.missing <= 0.001 && !calc.nonCashOver && !legacyPaymentSubmitting && !legacyPaymentDirty;
+    var canPay = legacyPaymentTotalKnown && calc.total >= 0 && calc.missing <= 0.001 && !calc.nonCashOver && !calc.voucherMissing && !legacyPaymentSubmitting && !legacyPaymentDirty;
     if (calc.method === 'courtesy' && calc.total > 0.001) canPay = false;
     if (summary) {
       summary.innerHTML =
@@ -713,7 +750,9 @@
         + (calc.change > 0 ? '<div style="margin-top:8px;color:#5fd27a;font-size:28px;font-weight:900;">Feria: ' + money(calc.change) + '</div>' : '')
         + (legacyPaymentDirty ? '<div style="margin-top:8px;color:#ffb4b4;font-weight:900;">Guarda los cambios de cuenta antes de cobrar.</div>' : '')
         + (calc.nonCashOver ? '<div style="margin-top:8px;color:#ffb4b4;font-weight:900;">Tarjeta/transferencia/otro no pueden exceder el total.</div>' : '')
+        + (calc.voucherMissing ? '<div style="margin-top:8px;color:#ffb4b4;font-weight:900;">Captura el folio/autorizacion del voucher para poder cobrar.</div>' : '')
         + (calc.method === 'courtesy' && calc.total > 0.001 ? '<div style="margin-top:8px;color:#ffb4b4;font-weight:900;">Cortesia solo cierra cuentas en $0.</div>' : '')
+        + (calc.mode !== 'mixed' && (calc.method === 'card' || calc.method === 'transfer' || calc.method === 'other') ? '<div style="margin-top:8px;color:#d8c58a;">El monto se ajusta solo al total (' + money(calc.total) + ') porque en este metodo siempre se cobra exacto.</div>' : '')
         + '<div style="margin-top:8px;color:#d8c58a;">Metodo: ' + escapeText(calc.methodLabel) + '</div>';
     }
     if (primary) {
@@ -741,6 +780,7 @@
       closeTable: true,
       dinersCount: calc.diners,
       totalPerDiner: calc.perDiner,
+      cardVoucher: calc.voucher,
       note: byId('emPaymentNote') ? byId('emPaymentNote').value : ''
     };
     visibleLog('enviando pago');

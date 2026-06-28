@@ -7,6 +7,7 @@ let pendingLogoDataUrl = undefined;
 let currentAdminPaymentTableId = '';
 let currentAdminDiscountTableId = '';
 let currentAdminCompTableId = '';
+let currentPaymentEditId = '';
 const qrCache = new Map();
 const ADMIN_JS_VERSION = '0.9.23-descuento-cortesia';
 
@@ -909,6 +910,7 @@ function renderFinance() {
 
   renderPendingPayments(summary.pendingPayments);
   renderExpenses(summary.expenses);
+  renderPaymentsHistory(date);
   renderDailyClosePreview(summary);
 }
 
@@ -998,6 +1000,187 @@ async function deleteExpense(id) {
   try {
     await api(`/api/admin/expenses/${id}`, { method: 'DELETE' });
     toast('Egreso cancelado');
+    await loadData(false);
+  } catch (error) {
+    toast(error.message);
+  }
+}
+
+function paymentHistoryStatusBadge(payment) {
+  if (payment.status === 'cancelled') return '<span class="pill" style="background:#3a1f1f;color:#ffb4b4;">Cancelado</span>';
+  return '<span class="pill" style="background:#1f3a23;color:#8fe3a3;">Aprobado</span>';
+}
+
+function paymentsHistoryForDate(date) {
+  return (db.payments || [])
+    .filter(payment => ['approved', 'cancelled'].includes(payment.status) && (payment.businessDate || itemBusinessDate(payment.approvedAt || payment.createdAt)) === date)
+    .sort((a, b) => String(b.approvedAt || b.updatedAt || b.createdAt || '').localeCompare(String(a.approvedAt || a.updatedAt || a.createdAt || '')));
+}
+
+function renderPaymentsHistory(date) {
+  const list = document.getElementById('paymentsHistoryList');
+  const pill = document.getElementById('paymentsHistoryCountPill');
+  if (!list) return;
+  const payments = paymentsHistoryForDate(date);
+  if (pill) pill.textContent = `${payments.length} pago${payments.length === 1 ? '' : 's'}`;
+  if (!payments.length) {
+    list.innerHTML = '<div class="item"><div>No hay pagos registrados en esta fecha.</div></div>';
+    return;
+  }
+  list.innerHTML = payments.map(payment => {
+    const cancelled = payment.status === 'cancelled';
+    return `
+    <div class="item" style="align-items:flex-start;${cancelled ? 'opacity:.7;' : ''}">
+      <div class="item-main">
+        <div class="item-title">${escapeHtml(payment.tableName || 'Mesa')} · ${money(payment.totalDue || payment.totalPaid || 0)} · ${paymentHistoryStatusBadge(payment)}</div>
+        <div class="item-meta">${escapeHtml(paymentMethodName(payment.method))} · Capturó: ${escapeHtml(payment.createdByStaffName || payment.assignedStaffName || 'staff')} · ${dateTime(payment.approvedAt || payment.createdAt)}</div>
+        ${payment.cardVoucher ? `<div class="item-meta">Folio/voucher: <strong>${escapeHtml(payment.cardVoucher)}</strong></div>` : ''}
+        ${Number(payment.discountAmount || 0) > 0 ? `<div class="item-meta">Descuento ${Number(payment.discountPercent || 0)}%: -${money(payment.discountAmount)}</div>` : ''}
+        ${Number(payment.tipAmount || 0) > 0 ? `<div class="item-meta">Propina: ${money(payment.tipAmount)}</div>` : ''}
+        ${payment.note ? `<div class="item-meta">Nota: ${escapeHtml(payment.note)}</div>` : ''}
+        ${cancelled ? `<div class="item-meta" style="color:#ffb4b4;">Cancelado por ${escapeHtml(payment.cancelledBy || 'Admin')} · ${escapeHtml(payment.cancelReason || 'sin motivo')} · ${dateTime(payment.cancelledAt)}</div>` : ''}
+        ${!cancelled && (payment.editHistory || []).length ? `<div class="item-meta">Editado ${payment.editHistory.length} vez(es), última: ${escapeHtml(payment.editHistory[0].reason)}</div>` : ''}
+      </div>
+      ${cancelled ? '' : `
+      <div class="inline-actions end">
+        <button class="btn small secondary" onclick="openAdminPaymentEditModal('${payment.id}')">Editar</button>
+        <button class="btn small danger" onclick="cancelHistoryPayment('${payment.id}')">Cancelar</button>
+      </div>
+      `}
+    </div>
+  `;
+  }).join('\n');
+}
+
+function adminPaymentEditAmounts() {
+  const subtotal = Number(document.getElementById('paymentEditSubtotal')?.dataset.subtotal || 0);
+  const method = document.getElementById('paymentEditMethod')?.value || 'cash';
+  const discountPercentRaw = document.getElementById('paymentEditDiscountPercent')?.value;
+  const discountPercent = Math.max(0, Math.min(100, Number(discountPercentRaw || 0)));
+  const validPercent = discountPercentRaw === '' || (Number.isFinite(Number(discountPercentRaw)) && discountPercent >= 0 && discountPercent <= 100);
+  const discountAmount = Math.min(subtotal, subtotal * (discountPercent / 100));
+  const tipAmount = Math.max(0, Number(document.getElementById('paymentEditTip')?.value || 0));
+  const totalDue = Math.max(0, subtotal - discountAmount + tipAmount);
+  const fullDiscount = discountPercent >= 100;
+  const amount = method === 'courtesy' ? 0 : Number(document.getElementById('paymentEditAmount')?.value || 0);
+  return { subtotal, method, discountPercent, validPercent, discountAmount, tipAmount, totalDue, fullDiscount, amount };
+}
+
+function renderAdminPaymentEditPreview() {
+  const preview = document.getElementById('paymentEditPreview');
+  const submit = document.getElementById('paymentEditSubmitBtn');
+  if (!preview || !submit) return;
+  const methodSelect = document.getElementById('paymentEditMethod');
+  const discountField = document.getElementById('paymentEditDiscountPercent');
+  if (methodSelect?.value === 'courtesy' && discountField && Number(discountField.value || 0) < 100) {
+    discountField.value = '100';
+  }
+  const { subtotal, method, discountPercent, validPercent, discountAmount, tipAmount, totalDue, fullDiscount, amount } = adminPaymentEditAmounts();
+  const amountField = document.getElementById('paymentEditAmount');
+  const nonCash = ['card', 'transfer', 'other'].includes(method);
+  const needsVoucher = method === 'card' || method === 'transfer';
+  const voucherRow = document.getElementById('paymentEditVoucherRow');
+  if (voucherRow) voucherRow.style.display = needsVoucher ? 'block' : 'none';
+  const voucher = document.getElementById('paymentEditVoucher')?.value.trim() || '';
+  if (amountField) {
+    if (fullDiscount || method === 'courtesy') {
+      amountField.value = '0';
+      amountField.readOnly = true;
+    } else if (nonCash) {
+      amountField.value = String(Math.round(totalDue * 100) / 100);
+      amountField.readOnly = true;
+    } else {
+      amountField.readOnly = false;
+    }
+  }
+  const finalAmount = (fullDiscount || method === 'courtesy') ? 0 : (nonCash ? totalDue : amount);
+  const warnings = [];
+  if (!validPercent) warnings.push('Usa un porcentaje entre 0 y 100.');
+  if (method === 'courtesy' && totalDue > 0.001) warnings.push('Cortesía solo aplica si el descuento deja el total en $0.');
+  if (!fullDiscount && method !== 'courtesy' && finalAmount + 0.001 < totalDue) warnings.push('El monto cobrado es menor al total.');
+  if (nonCash && finalAmount > totalDue + 0.001) warnings.push('Tarjeta/transferencia/otro deben ser el total exacto.');
+  if (needsVoucher && !voucher) warnings.push('Captura el folio/autorización del voucher.');
+  const reason = document.getElementById('paymentEditReason')?.value.trim();
+  submit.disabled = !currentPaymentEditId || !validPercent || !reason || warnings.length > 0;
+  preview.innerHTML = `
+    <div class="item">
+      <div class="item-main">
+        <div class="item-title">Vista previa</div>
+        <div class="item-meta">Subtotal original: <strong>${money(subtotal)}</strong></div>
+        <div class="item-meta">Descuento ${validPercent ? escapeHtml(discountPercent) : '0'}%: <strong>-${money(discountAmount)}</strong></div>
+        <div class="item-meta">Propina: <strong>${money(tipAmount)}</strong></div>
+        <div class="item-meta">Total corregido: <strong>${money(totalDue)}</strong></div>
+        ${warnings.map(warning => `<div class="item-meta" style="color:#ffb4b4;">${escapeHtml(warning)}</div>`).join('')}
+        ${!reason ? '<div class="item-meta" style="color:#ffb4b4;">Indica el motivo de la corrección.</div>' : ''}
+      </div>
+    </div>
+  `;
+}
+
+function openAdminPaymentEditModal(paymentId) {
+  const payment = (db.payments || []).find(item => item.id === paymentId);
+  if (!payment) return toast('No encontré ese pago');
+  currentPaymentEditId = paymentId;
+  document.getElementById('paymentEditTableName').textContent = `${payment.tableName || 'Mesa'} · ${dateTime(payment.approvedAt || payment.createdAt)}`;
+  const subtotalEl = document.getElementById('paymentEditSubtotal');
+  subtotalEl.textContent = money(payment.subtotal || 0);
+  subtotalEl.dataset.subtotal = String(payment.subtotal || 0);
+  const methodSelect = document.getElementById('paymentEditMethod');
+  methodSelect.value = ['cash', 'card', 'transfer', 'other', 'courtesy'].includes(payment.method) ? payment.method : 'cash';
+  document.getElementById('paymentEditAmount').value = String(payment.totalPaid || payment.totalDue || 0);
+  document.getElementById('paymentEditDiscountPercent').value = String(payment.discountPercent || 0);
+  document.getElementById('paymentEditTip').value = String(payment.tipAmount || 0);
+  document.getElementById('paymentEditNote').value = payment.note || '';
+  document.getElementById('paymentEditVoucher').value = payment.cardVoucher || '';
+  document.getElementById('paymentEditReason').value = '';
+  document.getElementById('adminPaymentEditModal').classList.add('active');
+  renderAdminPaymentEditPreview();
+}
+
+function closeAdminPaymentEditModal() {
+  currentPaymentEditId = '';
+  document.getElementById('adminPaymentEditModal')?.classList.remove('active');
+}
+
+async function submitAdminPaymentEdit() {
+  if (!currentPaymentEditId) return;
+  const { method, discountPercent, validPercent, tipAmount, totalDue, fullDiscount, amount } = adminPaymentEditAmounts();
+  const reason = document.getElementById('paymentEditReason').value.trim();
+  const voucher = document.getElementById('paymentEditVoucher').value.trim();
+  if (!validPercent) return toast('Descuento inválido');
+  if (!reason) return toast('Indica el motivo de la corrección');
+  if ((method === 'card' || method === 'transfer') && !voucher) return toast('Captura el folio/autorización del voucher');
+  const nonCash = ['card', 'transfer', 'other'].includes(method);
+  const isCourtesy = fullDiscount || method === 'courtesy';
+  const finalAmount = isCourtesy ? 0 : (nonCash ? totalDue : amount);
+  const payload = {
+    method,
+    discountPercent: method === 'courtesy' ? 100 : discountPercent,
+    discountReason: isCourtesy ? reason : undefined,
+    tipAmount,
+    amountPaid: finalAmount,
+    note: document.getElementById('paymentEditNote').value,
+    cardVoucher: voucher,
+    editReason: reason
+  };
+  try {
+    await api(`/api/admin/payments/${currentPaymentEditId}`, { method: 'PUT', body: JSON.stringify(payload) });
+    toast('Pago corregido');
+    closeAdminPaymentEditModal();
+    await loadData(false);
+  } catch (error) {
+    toast(error.message);
+  }
+}
+
+async function cancelHistoryPayment(paymentId) {
+  const reason = prompt('Motivo de la cancelación (obligatorio):', '');
+  if (reason === null) return;
+  if (!reason.trim()) return toast('Indica el motivo de la cancelación');
+  if (!confirm('¿Cancelar este pago? Dejará de contar en las ventas del día.')) return;
+  try {
+    await api(`/api/admin/payments/${paymentId}/cancel`, { method: 'POST', body: JSON.stringify({ reason: reason.trim() }) });
+    toast('Pago cancelado');
     await loadData(false);
   } catch (error) {
     toast(error.message);

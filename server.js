@@ -947,6 +947,115 @@ function upsertSessionPayment(db, tableId, session, payload = {}, actor = {}) {
   return payment;
 }
 
+function recalcHistoricalPaymentAmounts(db, payment, payload = {}) {
+  // Se usa SOLO para corregir/cancelar un pago que ya quedo registrado (historial de
+  // pagos del dia). A diferencia de normalizePaymentInput, aqui NO se vuelve a leer la
+  // cuenta en vivo de la mesa (buildBillSummary): para entonces la mesa pudo haberse
+  // cerrado y hasta tener clientes nuevos. Se recalcula sobre el subtotal que quedo
+  // congelado en el pago original, para no alterar ni mezclar otras cuentas.
+  const subtotal = roundMoney(payment.subtotal || 0);
+  const discountReasonProvided = payload.discountReason !== undefined;
+  const discountReason = discountReasonProvided ? cleanString(payload.discountReason, 240) : (payment.discountReason || '');
+
+  let discountPercent;
+  if (payload.discountPercent !== undefined && payload.discountPercent !== '') {
+    discountPercent = Number(payload.discountPercent);
+    if (!Number.isFinite(discountPercent) || discountPercent < 0 || discountPercent > 100) {
+      const err = new Error('El descuento debe estar entre 0 y 100');
+      err.status = 400;
+      throw err;
+    }
+  } else {
+    discountPercent = Number(payment.discountPercent || 0);
+  }
+  if (discountPercent >= 100 && !discountReason) {
+    const err = new Error('Motivo obligatorio para descuento total / cortesia');
+    err.status = 400;
+    throw err;
+  }
+  discountPercent = roundMoney(discountPercent);
+  const discountAmount = roundMoney(Math.min(subtotal, subtotal * (discountPercent / 100)));
+
+  const tipsEnabled = db.restaurant?.tipsEnabled !== false;
+  const tipAmount = tipsEnabled
+    ? Math.max(0, roundMoney(cleanNumber(payload.tipAmount, payment.tipAmount || 0)))
+    : 0;
+  const totalDue = Math.max(0, roundMoney(subtotal - discountAmount + tipAmount));
+
+  const method = ['cash', 'card', 'transfer', 'courtesy', 'mixed', 'split', 'other'].includes(payload.method)
+    ? payload.method
+    : (payment.method || 'cash');
+
+  let cashAmount = Math.max(0, roundMoney(cleanNumber(payload.cashAmount, 0)));
+  let cardAmount = Math.max(0, roundMoney(cleanNumber(payload.cardAmount, 0)));
+  let transferAmount = Math.max(0, roundMoney(cleanNumber(payload.transferAmount, 0)));
+  let otherAmount = Math.max(0, roundMoney(cleanNumber(payload.otherAmount, 0)));
+  let totalPaid = roundMoney(cashAmount + cardAmount + transferAmount + otherAmount);
+
+  const explicitPaid = payload.amountPaid !== undefined && payload.amountPaid !== ''
+    ? Math.max(0, roundMoney(cleanNumber(payload.amountPaid, totalDue)))
+    : null;
+
+  if (method !== 'mixed' && method !== 'split') {
+    let amount = explicitPaid;
+    if (amount === null && method === 'courtesy') amount = 0;
+    if (amount === null) amount = totalDue;
+    cashAmount = method === 'cash' ? amount : 0;
+    cardAmount = method === 'card' ? amount : 0;
+    transferAmount = method === 'transfer' ? amount : 0;
+    otherAmount = method === 'other' ? amount : 0;
+    totalPaid = amount;
+  } else if (!totalPaid && explicitPaid !== null) {
+    totalPaid = explicitPaid;
+  } else if (!totalPaid) {
+    totalPaid = totalDue;
+  }
+
+  const nonCashAmount = roundMoney(cardAmount + transferAmount + otherAmount);
+  const changeAmount = ['cash', 'mixed', 'split'].includes(method) && cashAmount > 0
+    ? Math.max(0, roundMoney(totalPaid - totalDue))
+    : 0;
+
+  if (totalPaid + 0.001 < totalDue) {
+    const err = new Error('Monto insuficiente para cubrir el total del pago');
+    err.status = 400;
+    throw err;
+  }
+  if (method === 'courtesy' && totalDue > 0.001) {
+    const err = new Error('La cortesia/descuento total solo aplica a cuentas en $0');
+    err.status = 400;
+    throw err;
+  }
+  if (['card', 'transfer', 'other'].includes(method) && totalPaid > totalDue + 0.001) {
+    const err = new Error('En tarjeta o transferencia captura el total exacto');
+    err.status = 400;
+    throw err;
+  }
+  if (['mixed', 'split'].includes(method) && nonCashAmount > totalDue + 0.001) {
+    const err = new Error('Tarjeta/transferencia/otro no pueden exceder el total. El cambio solo sale del efectivo.');
+    err.status = 400;
+    throw err;
+  }
+
+  return {
+    subtotal,
+    discountPercent,
+    discountAmount,
+    discountReason,
+    tipAmount,
+    totalDue,
+    method,
+    methodLabel: paymentMethodLabelFull(method),
+    cashAmount,
+    cardAmount,
+    transferAmount,
+    otherAmount,
+    totalPaid,
+    changeAmount,
+    note: payload.note !== undefined ? cleanString(payload.note, 300) : (payment.note || '')
+  };
+}
+
 function paymentStaffIdentity(db, payment) {
   const session = payment?.sessionId ? (db.tableSessions || []).find(item => item.id === payment.sessionId) : null;
   const closure = (db.tableClosures || []).find(item => item.paymentId === payment?.id || (payment?.sessionId && item.sessionId === payment.sessionId));
@@ -3605,6 +3714,17 @@ app.post('/api/admin/tables/:tableId/payment', requireLogin, (req, res) => {
   const db = readDb();
   const session = activeSessionForTable(db, req.params.tableId);
   if (!session) return res.status(404).json({ ok: false, message: 'No hay sesión activa en esta mesa' });
+
+  // El cliente pidio que, al cobrar con tarjeta o transferencia desde "Ingresar pago",
+  // siempre se capture el folio/autorizacion del voucher antes de poder cerrar el cobro.
+  const willApprove = req.body.authorize !== false;
+  const cardVoucher = cleanString(req.body.cardVoucher || req.body.voucher || '', 60);
+  const usesCardOrTransfer = req.body.method === 'card' || req.body.method === 'transfer'
+    || (req.body.method === 'mixed' && (cleanNumber(req.body.cardAmount, 0) > 0 || cleanNumber(req.body.transferAmount, 0) > 0));
+  if (willApprove && usesCardOrTransfer && !cardVoucher) {
+    return res.status(400).json({ ok: false, message: 'Captura el folio/autorización del voucher antes de cobrar' });
+  }
+
   let payment = null;
   try {
     payment = upsertSessionPayment(db, req.params.tableId, session, {
@@ -3616,6 +3736,7 @@ app.post('/api/admin/tables/:tableId/payment', requireLogin, (req, res) => {
   } catch (error) {
     return res.status(error.status || 400).json({ ok: false, message: error.message || 'Descuento inválido' });
   }
+  if (cardVoucher) payment.cardVoucher = cardVoucher;
   let result = null;
   if (req.body.closeTable !== false && payment.status === 'approved') {
     result = closeTableSession(db, req.params.tableId, null, {
@@ -3628,6 +3749,156 @@ app.post('/api/admin/tables/:tableId/payment', requireLogin, (req, res) => {
   }
   writeDb(db);
   res.json({ ok: true, payment, ...(result || {}) });
+});
+
+app.put('/api/admin/payments/:id', requireLogin, (req, res) => {
+  const db = readDb();
+  const payment = (db.payments || []).find(item => item.id === req.params.id);
+  if (!payment) return res.status(404).json({ ok: false, message: 'Pago no encontrado' });
+  if (payment.status === 'cancelled') {
+    return res.status(409).json({ ok: false, message: 'Este pago esta cancelado; no se puede editar' });
+  }
+  const editReason = cleanString(req.body.editReason || req.body.reason || '', 240);
+  if (!editReason) {
+    return res.status(400).json({ ok: false, message: 'Indica el motivo de la correccion' });
+  }
+  const cardVoucherProvided = req.body.cardVoucher !== undefined || req.body.voucher !== undefined;
+  const cardVoucher = cardVoucherProvided ? cleanString(req.body.cardVoucher || req.body.voucher || '', 60) : (payment.cardVoucher || '');
+  const willUseCardOrTransfer = ['card', 'transfer'].includes(req.body.method || payment.method);
+  if (willUseCardOrTransfer && !cardVoucher) {
+    return res.status(400).json({ ok: false, message: 'Captura el folio/autorización del voucher antes de guardar' });
+  }
+
+  let recalculated;
+  try {
+    recalculated = recalcHistoricalPaymentAmounts(db, payment, req.body);
+  } catch (error) {
+    return res.status(error.status || 400).json({ ok: false, message: error.message || 'Datos de pago invalidos' });
+  }
+
+  const before = {
+    method: payment.method,
+    methodLabel: payment.methodLabel,
+    cashAmount: payment.cashAmount,
+    cardAmount: payment.cardAmount,
+    transferAmount: payment.transferAmount,
+    otherAmount: payment.otherAmount,
+    tipAmount: payment.tipAmount,
+    discountPercent: payment.discountPercent,
+    discountAmount: payment.discountAmount,
+    totalDue: payment.totalDue,
+    totalPaid: payment.totalPaid,
+    note: payment.note,
+    cardVoucher: payment.cardVoucher || ''
+  };
+
+  const now = nowIso();
+  Object.assign(payment, {
+    discountPercent: recalculated.discountPercent,
+    discountAmount: recalculated.discountAmount,
+    descuento: recalculated.discountAmount,
+    discountReason: recalculated.discountReason,
+    tipAmount: recalculated.tipAmount,
+    propina: recalculated.tipAmount,
+    totalDue: recalculated.totalDue,
+    total: recalculated.totalDue,
+    method: recalculated.method,
+    methodLabel: recalculated.methodLabel,
+    cashAmount: recalculated.cashAmount,
+    cardAmount: recalculated.cardAmount,
+    transferAmount: recalculated.transferAmount,
+    otherAmount: recalculated.otherAmount,
+    totalPaid: recalculated.totalPaid,
+    changeAmount: recalculated.changeAmount,
+    note: recalculated.note,
+    cardVoucher: cardVoucherProvided ? cardVoucher : (payment.cardVoucher || ''),
+    updatedAt: now
+  });
+
+  payment.editHistory = Array.isArray(payment.editHistory) ? payment.editHistory : [];
+  payment.editHistory.unshift({
+    at: now,
+    by: req.session.adminUser || 'Admin',
+    role: req.session.adminRole || 'admin',
+    reason: editReason,
+    before,
+    after: {
+      method: payment.method,
+      methodLabel: payment.methodLabel,
+      cashAmount: payment.cashAmount,
+      cardAmount: payment.cardAmount,
+      transferAmount: payment.transferAmount,
+      otherAmount: payment.otherAmount,
+      tipAmount: payment.tipAmount,
+      discountPercent: payment.discountPercent,
+      discountAmount: payment.discountAmount,
+      totalDue: payment.totalDue,
+      totalPaid: payment.totalPaid,
+      note: payment.note,
+      cardVoucher: payment.cardVoucher || ''
+    }
+  });
+
+  const closure = (db.tableClosures || []).find(item => item.paymentId === payment.id || (payment.sessionId && item.sessionId === payment.sessionId));
+  if (closure) {
+    Object.assign(closure, {
+      paymentMethod: payment.method,
+      paymentMethodLabel: payment.methodLabel,
+      paymentTotalDue: payment.totalDue,
+      paymentTotalPaid: payment.totalPaid,
+      changeAmount: payment.changeAmount,
+      tipAmount: payment.tipAmount,
+      propina: payment.tipAmount,
+      discountPercent: payment.discountPercent,
+      discountAmount: payment.discountAmount,
+      descuento: payment.discountAmount,
+      discountReason: payment.discountReason,
+      total: payment.totalDue,
+      cardVoucher: payment.cardVoucher || '',
+      editedAt: now,
+      editedBy: req.session.adminUser || 'Admin'
+    });
+  }
+
+  writeDb(db);
+  res.json({ ok: true, payment });
+});
+
+app.post('/api/admin/payments/:id/cancel', requireLogin, (req, res) => {
+  const db = readDb();
+  const payment = (db.payments || []).find(item => item.id === req.params.id);
+  if (!payment) return res.status(404).json({ ok: false, message: 'Pago no encontrado' });
+  if (payment.status === 'cancelled') {
+    return res.status(409).json({ ok: false, message: 'Este pago ya estaba cancelado' });
+  }
+  const reason = cleanString(req.body.reason || '', 240);
+  if (!reason) {
+    return res.status(400).json({ ok: false, message: 'Indica el motivo de la cancelacion' });
+  }
+
+  const now = nowIso();
+  payment.status = 'cancelled';
+  payment.cancelledAt = now;
+  payment.cancelledBy = req.session.adminUser || 'Admin';
+  payment.cancelReason = reason;
+  payment.updatedAt = now;
+
+  const closure = (db.tableClosures || []).find(item => item.paymentId === payment.id || (payment.sessionId && item.sessionId === payment.sessionId));
+  if (closure) {
+    closure.paymentCancelled = true;
+    closure.paymentCancelledAt = now;
+    closure.paymentCancelledBy = payment.cancelledBy;
+    closure.paymentCancelReason = reason;
+  }
+
+  const session = payment.sessionId ? (db.tableSessions || []).find(item => item.id === payment.sessionId) : null;
+  if (session && session.paymentId === payment.id) {
+    session.paymentStatus = 'cancelled';
+    if (session.status === 'active') session.paymentId = '';
+  }
+
+  writeDb(db);
+  res.json({ ok: true, payment });
 });
 
 app.post('/api/admin/expenses', requireLogin, (req, res) => {

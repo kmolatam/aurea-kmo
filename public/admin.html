@@ -219,6 +219,17 @@
           <div class="col-12 card">
             <div class="section-head">
               <div>
+                <h3 style="margin:0;">Historial de pagos del día</h3>
+                <p class="muted" style="margin:6px 0 0;">Todos los pagos registrados en la fecha seleccionada arriba. Si algo se capturó mal, edítalo o cancélalo aquí (queda guardado quién y por qué).</p>
+              </div>
+              <span id="paymentsHistoryCountPill" class="pill">0 pagos</span>
+            </div>
+            <div id="paymentsHistoryList" class="list" style="margin-top:12px;"></div>
+          </div>
+
+          <div class="col-12 card">
+            <div class="section-head">
+              <div>
                 <h3 style="margin:0;">Cerrar día</h3>
                 <p class="muted" style="margin:6px 0 0;">Captura fondo inicial y efectivo contado. AUREA calcula diferencia.</p>
               </div>
@@ -707,6 +718,61 @@
       <div class="inline-actions end" style="margin-top:16px;">
         <button class="btn ghost" type="button" onclick="closeAdminComplimentaryModal()">Cancelar</button>
         <button class="btn secondary" id="adminComplimentarySubmitBtn" type="button" data-legacy-action="submit-complimentary" onclick="submitAdminComplimentary()">Enviar</button>
+      </div>
+    </div>
+  </div>
+
+
+  <div id="adminPaymentEditModal" class="modal-backdrop">
+    <div class="modal">
+      <div class="section-head">
+        <div>
+          <h2 style="margin:0;">Editar pago</h2>
+          <p id="paymentEditTableName" class="muted" style="margin:6px 0 0;">Mesa</p>
+        </div>
+        <button class="btn ghost small" onclick="closeAdminPaymentEditModal()">Cerrar</button>
+      </div>
+
+      <div class="bill-total-box">
+        <span>Subtotal original</span>
+        <strong id="paymentEditSubtotal">$0</strong>
+      </div>
+
+      <div class="grid" style="margin-top:14px;">
+        <label class="col-6">Método de pago
+          <select id="paymentEditMethod" onchange="renderAdminPaymentEditPreview()">
+            <option value="cash">Efectivo</option>
+            <option value="card">Tarjeta</option>
+            <option value="transfer">Transferencia</option>
+            <option value="other">Otro</option>
+            <option value="courtesy">Cortesía / descuento total</option>
+          </select>
+        </label>
+        <label class="col-6">Monto cobrado
+          <input id="paymentEditAmount" class="input" type="number" min="0" step="0.01" placeholder="0" oninput="renderAdminPaymentEditPreview()" />
+        </label>
+        <label class="col-6">Descuento %
+          <input id="paymentEditDiscountPercent" class="input" type="number" min="0" max="100" step="0.01" placeholder="0" oninput="renderAdminPaymentEditPreview()" />
+        </label>
+        <label class="col-6">Propina
+          <input id="paymentEditTip" class="input" type="number" min="0" step="0.01" placeholder="0" oninput="renderAdminPaymentEditPreview()" />
+        </label>
+        <label class="col-12" id="paymentEditVoucherRow" style="display:none;">Folio / autorización del voucher
+          <input id="paymentEditVoucher" class="input" placeholder="Ej. 045821, AUT-1234..." oninput="renderAdminPaymentEditPreview()" />
+        </label>
+        <label class="col-12">Nota del pago (opcional)
+          <input id="paymentEditNote" class="input" placeholder="Ej. voucher, autorización..." />
+        </label>
+        <label class="col-12">Motivo de la corrección (obligatorio)
+          <input id="paymentEditReason" class="input" placeholder="Ej. se capturó como efectivo y fue tarjeta..." />
+        </label>
+      </div>
+
+      <div id="paymentEditPreview" class="list" style="margin-top:14px;"></div>
+
+      <div class="inline-actions end" style="margin-top:16px;">
+        <button class="btn ghost" type="button" onclick="closeAdminPaymentEditModal()">Cancelar</button>
+        <button class="btn success" id="paymentEditSubmitBtn" type="button" onclick="submitAdminPaymentEdit()">Guardar corrección</button>
       </div>
     </div>
   </div>
