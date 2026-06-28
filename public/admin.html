@@ -56,6 +56,7 @@
         <button class="nav-btn" data-section="team">Producción</button>
         <button class="nav-btn" data-section="history">Historial</button>
         <button class="nav-btn" data-section="finance">Corte diario</button>
+        <button class="nav-btn" data-section="analytics">Estadísticas</button>
         <button class="nav-btn" data-section="menu">Menú</button>
         <button class="nav-btn" data-section="tables">Mesas & QR</button>
         <button class="nav-btn" data-section="settings">Configuración</button>
@@ -219,6 +220,28 @@
           <div class="col-12 card">
             <div class="section-head">
               <div>
+                <h3 style="margin:0;">Ventas por rango de fechas</h3>
+                <p class="muted" style="margin:6px 0 0;">Cuánto se generó cada día dentro del rango que elijas.</p>
+              </div>
+            </div>
+            <div class="grid" style="margin-top:10px;">
+              <label class="col-6">Desde
+                <input id="financeRangeStart" class="input" type="date" />
+              </label>
+              <label class="col-6">Hasta
+                <input id="financeRangeEnd" class="input" type="date" />
+              </label>
+              <div class="col-12">
+                <button class="btn secondary small" onclick="renderFinanceRange()">Ver rango</button>
+              </div>
+            </div>
+            <div id="financeRangeSummary" class="muted" style="margin-top:10px;"></div>
+            <div id="financeRangeList" class="list" style="margin-top:10px;"></div>
+          </div>
+
+          <div class="col-12 card">
+            <div class="section-head">
+              <div>
                 <h3 style="margin:0;">Historial de pagos del día</h3>
                 <p class="muted" style="margin:6px 0 0;">Todos los pagos registrados en la fecha seleccionada arriba. Si algo se capturó mal, edítalo o cancélalo aquí (queda guardado quién y por qué).</p>
               </div>
@@ -250,6 +273,48 @@
               <div id="dailyClosePreview" class="finance-summary-box"></div>
               <button class="btn success" type="submit" data-legacy-action="daily-close">Cerrar día</button>
             </form>
+          </div>
+        </div>
+      </section>
+
+
+      <section id="analytics" class="section">
+        <div class="section-head">
+          <div>
+            <h2 style="margin-bottom:4px;">Estadísticas</h2>
+            <p class="muted" style="margin-top:0;">Tendencia de ventas y desempeño de meseros en el periodo que elijas.</p>
+          </div>
+          <div class="inline-actions end">
+            <input id="analyticsStart" class="input small-input" type="date" />
+            <input id="analyticsEnd" class="input small-input" type="date" />
+            <button class="btn secondary small" onclick="renderAnalytics()">Actualizar</button>
+          </div>
+        </div>
+
+        <div class="grid">
+          <div class="col-3 stat"><strong id="analyticsTotalSales">$0</strong><span>Venta del periodo</span></div>
+          <div class="col-3 stat"><strong id="analyticsTotalTips">$0</strong><span>Propinas del periodo</span></div>
+          <div class="col-3 stat"><strong id="analyticsTicketAvg">$0</strong><span>Ticket promedio</span></div>
+          <div class="col-3 stat"><strong id="analyticsTicketCount">0</strong><span>Tickets cobrados</span></div>
+
+          <div class="col-12 card">
+            <div class="section-head">
+              <div>
+                <h3 style="margin:0;">Tendencia de ventas por día</h3>
+                <p class="muted" style="margin:6px 0 0;">Total vendido cada día dentro del periodo.</p>
+              </div>
+            </div>
+            <div id="analyticsSalesChart" style="margin-top:12px;"></div>
+          </div>
+
+          <div class="col-12 card">
+            <div class="section-head">
+              <div>
+                <h3 style="margin:0;">Ranking de meseros</h3>
+                <p class="muted" style="margin:6px 0 0;">Ventas y propinas acumuladas en el periodo, ordenado de mayor a menor venta.</p>
+              </div>
+            </div>
+            <div id="analyticsStaffRanking" class="list" style="margin-top:12px;"></div>
           </div>
         </div>
       </section>

@@ -146,6 +146,7 @@ function safeRender(name, fn) {
 
 function renderAll() {
   safeRender('estadísticas', renderStats);
+  safeRender('analítica', renderAnalytics);
   safeRender('alertas', renderAlerts);
   safeRender('pedidos', renderOrders);
   safeRender('comandas', renderCommandBoard);
@@ -162,6 +163,7 @@ function renderAll() {
 
 function renderLiveData() {
   safeRender('estadísticas', renderStats);
+  safeRender('analítica', renderAnalytics);
   safeRender('alertas', renderAlerts);
   safeRender('pedidos', renderOrders);
   safeRender('comandas', renderCommandBoard);
@@ -891,6 +893,182 @@ function financeSummaryForDate(date) {
   return { payments, pendingPayments, expenses, dailyClose, sales, salesByStaff, tipsByStaff, expenseTotal, netCashExpected: sales.cash - expenseTotal };
 }
 
+function financeSummaryForRange(startDate, endDate) {
+  const start = startDate <= endDate ? startDate : endDate;
+  const end = startDate <= endDate ? endDate : startDate;
+
+  const dayMap = new Map();
+  function ensureDay(d) {
+    if (!dayMap.has(d)) dayMap.set(d, { date: d, cash: 0, card: 0, transfer: 0, other: 0, total: 0, tips: 0, discounts: 0, paymentCount: 0 });
+    return dayMap.get(d);
+  }
+  // Se prellenan todos los dias del rango (aunque no haya ventas) para que la grafica
+  // de tendencia y la lista no salten dias sin informacion.
+  const cursor = new Date(`${start}T00:00:00`);
+  const endCursor = new Date(`${end}T00:00:00`);
+  while (cursor <= endCursor) {
+    ensureDay(itemBusinessDate(cursor.toISOString()));
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  const staffMap = new Map();
+  const payments = (db.payments || []).filter(payment => {
+    if (payment.status !== 'approved') return false;
+    const d = payment.businessDate || itemBusinessDate(payment.approvedAt || payment.createdAt);
+    return d >= start && d <= end;
+  });
+  payments.forEach(payment => {
+    const d = payment.businessDate || itemBusinessDate(payment.approvedAt || payment.createdAt);
+    const row = ensureDay(d);
+    row.cash += Math.max(0, Number(payment.cashAmount || 0) - Number(payment.changeAmount || 0));
+    row.card += Number(payment.cardAmount || 0);
+    row.transfer += Number(payment.transferAmount || 0);
+    row.other += Number(payment.otherAmount || 0);
+    row.total += Number(payment.totalDue || payment.totalPaid || 0);
+    row.tips += Number(payment.tipAmount || 0);
+    row.discounts += Number(payment.discountAmount || 0);
+    row.paymentCount += 1;
+
+    const staff = paymentStaffForProduction(payment);
+    const key = staff.id || staff.name || 'Sin mesero';
+    if (!staffMap.has(key)) staffMap.set(key, { staffId: staff.id, staffName: staff.name || 'Sin mesero', sales: 0, tips: 0, tickets: 0, tableIds: new Set() });
+    const srow = staffMap.get(key);
+    srow.sales += Number(payment.totalDue || payment.totalPaid || 0);
+    srow.tips += Number(payment.tipAmount || payment.propina || 0);
+    srow.tickets += 1;
+    if (payment.tableId) srow.tableIds.add(payment.tableId);
+  });
+
+  const days = Array.from(dayMap.values()).sort((a, b) => a.date.localeCompare(b.date));
+  const salesByStaff = Array.from(staffMap.values()).map(row => ({
+    staffId: row.staffId,
+    staffName: row.staffName,
+    sales: row.sales,
+    tips: row.tips,
+    tickets: row.tickets,
+    ticketAverage: row.tickets ? row.sales / row.tickets : 0,
+    tablesServed: row.tableIds.size
+  })).sort((a, b) => b.sales - a.sales);
+
+  const totals = days.reduce((acc, day) => {
+    acc.cash += day.cash; acc.card += day.card; acc.transfer += day.transfer; acc.other += day.other;
+    acc.total += day.total; acc.tips += day.tips; acc.discounts += day.discounts; acc.paymentCount += day.paymentCount;
+    return acc;
+  }, { cash: 0, card: 0, transfer: 0, other: 0, total: 0, tips: 0, discounts: 0, paymentCount: 0 });
+
+  return { startDate: start, endDate: end, days, salesByStaff, totals };
+}
+
+function selectedRangeDates(startId, endId, daysBack) {
+  const startInput = document.getElementById(startId);
+  const endInput = document.getElementById(endId);
+  if (!startInput || !endInput) return null;
+  if (!endInput.value) endInput.value = todayBusinessDate();
+  if (!startInput.value) {
+    const end = new Date(`${endInput.value}T00:00:00`);
+    end.setDate(end.getDate() - (daysBack - 1));
+    startInput.value = itemBusinessDate(end.toISOString());
+  }
+  return { start: startInput.value, end: endInput.value };
+}
+
+function formatShortDate(isoDate) {
+  const date = new Date(`${isoDate}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return isoDate;
+  return date.toLocaleDateString('es-MX', { day: '2-digit', month: 'short' });
+}
+
+function renderSalesTrendChartSvg(days) {
+  if (!days || !days.length) return '<div class="muted">Sin datos en este periodo.</div>';
+  const width = Math.max(360, days.length * 64);
+  const height = 220;
+  const paddingBottom = 36;
+  const paddingTop = 28;
+  const max = Math.max(1, ...days.map(d => d.total));
+  const gap = width / days.length;
+  const barWidth = Math.min(40, gap * 0.6);
+  const bars = days.map((day, index) => {
+    const barHeight = Math.round(((height - paddingBottom - paddingTop) * day.total) / max);
+    const x = index * gap + (gap - barWidth) / 2;
+    const y = height - paddingBottom - barHeight;
+    const label = formatShortDate(day.date);
+    return `
+      <g>
+        <title>${escapeHtml(day.date)}: ${money(day.total)}</title>
+        <rect x="${x.toFixed(1)}" y="${y}" width="${barWidth.toFixed(1)}" height="${Math.max(barHeight, day.total > 0 ? 2 : 0)}" rx="4" fill="var(--gold)" opacity="${day.total > 0 ? '0.9' : '0.25'}"></rect>
+        <text x="${(x + barWidth / 2).toFixed(1)}" y="${height - paddingBottom + 16}" text-anchor="middle" font-size="11" fill="var(--muted)">${escapeHtml(label)}</text>
+        ${day.total > 0 ? `<text x="${(x + barWidth / 2).toFixed(1)}" y="${(y - 6).toFixed(1)}" text-anchor="middle" font-size="11" fill="var(--text)">${escapeHtml(money(day.total))}</text>` : ''}
+      </g>
+    `;
+  }).join('\n');
+  return `
+    <div style="overflow-x:auto;">
+      <svg viewBox="0 0 ${width} ${height}" width="100%" height="${height}" style="min-width:${width}px;display:block;">
+        <line x1="0" y1="${height - paddingBottom}" x2="${width}" y2="${height - paddingBottom}" stroke="var(--line)" stroke-width="1"></line>
+        ${bars}
+      </svg>
+    </div>
+  `;
+}
+
+function renderFinanceRange() {
+  const range = selectedRangeDates('financeRangeStart', 'financeRangeEnd', 7);
+  const list = document.getElementById('financeRangeList');
+  const summaryEl = document.getElementById('financeRangeSummary');
+  if (!range || !list) return;
+  const summary = financeSummaryForRange(range.start, range.end);
+  if (summaryEl) {
+    summaryEl.innerHTML = `Total del rango: <strong>${money(summary.totals.total)}</strong> · Propinas: <strong>${money(summary.totals.tips)}</strong> · Pagos: <strong>${summary.totals.paymentCount}</strong>`;
+  }
+  if (!summary.days.length) {
+    list.innerHTML = '<div class="item"><div>Sin datos en este rango.</div></div>';
+    return;
+  }
+  list.innerHTML = summary.days.slice().reverse().map(day => `
+    <div class="item">
+      <div class="item-main">
+        <div class="item-title">${escapeHtml(day.date)} · ${money(day.total)}</div>
+        <div class="item-meta">Efectivo ${money(day.cash)} · Tarjeta ${money(day.card)} · Transferencia ${money(day.transfer)} · Otro ${money(day.other)} · Propinas ${money(day.tips)} · ${day.paymentCount} pago(s)</div>
+      </div>
+    </div>
+  `).join('\n');
+}
+
+function renderAnalytics() {
+  const range = selectedRangeDates('analyticsStart', 'analyticsEnd', 7);
+  if (!range) return;
+  const summary = financeSummaryForRange(range.start, range.end);
+
+  const totalSalesEl = document.getElementById('analyticsTotalSales');
+  const totalTipsEl = document.getElementById('analyticsTotalTips');
+  const ticketAvgEl = document.getElementById('analyticsTicketAvg');
+  const ticketCountEl = document.getElementById('analyticsTicketCount');
+  if (totalSalesEl) totalSalesEl.textContent = money(summary.totals.total);
+  if (totalTipsEl) totalTipsEl.textContent = money(summary.totals.tips);
+  const ticketAvg = summary.totals.paymentCount ? summary.totals.total / summary.totals.paymentCount : 0;
+  if (ticketAvgEl) ticketAvgEl.textContent = money(ticketAvg);
+  if (ticketCountEl) ticketCountEl.textContent = String(summary.totals.paymentCount);
+
+  const chartEl = document.getElementById('analyticsSalesChart');
+  if (chartEl) chartEl.innerHTML = renderSalesTrendChartSvg(summary.days);
+
+  const rankingEl = document.getElementById('analyticsStaffRanking');
+  if (rankingEl) {
+    if (!summary.salesByStaff.length) {
+      rankingEl.innerHTML = '<div class="item"><div>Sin ventas registradas en este periodo.</div></div>';
+    } else {
+      rankingEl.innerHTML = summary.salesByStaff.map((row, index) => `
+        <div class="item">
+          <div class="item-main">
+            <div class="item-title">#${index + 1} · ${escapeHtml(row.staffName || 'Sin mesero')} · ${money(row.sales)}</div>
+            <div class="item-meta">Propinas: ${money(row.tips)} · Mesas atendidas: ${row.tablesServed} · Tickets: ${row.tickets} · Ticket prom.: ${money(row.ticketAverage)}</div>
+          </div>
+        </div>
+      `).join('\n');
+    }
+  }
+}
+
 function renderFinance() {
   if (!db) return;
   const dateInput = document.getElementById('financeDate');
@@ -911,6 +1089,7 @@ function renderFinance() {
   renderPendingPayments(summary.pendingPayments);
   renderExpenses(summary.expenses);
   renderPaymentsHistory(date);
+  renderFinanceRange();
   renderDailyClosePreview(summary);
 }
 
