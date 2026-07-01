@@ -1151,6 +1151,17 @@ function normalizeDiners(value) {
     .slice(0, 16);
 }
 
+function normalizeItemDinerMap(value) {
+  const map = {};
+  if (!value || typeof value !== 'object') return map;
+  const keys = Object.keys(value).filter(key => /^[\w-]+:\d+$/.test(key)).slice(0, 200);
+  for (const key of keys) {
+    const name = cleanDinerName(value[key]);
+    if (name) map[key] = name;
+  }
+  return map;
+}
+
 function updateSessionDiners(session, diners) {
   const cleaned = normalizeDiners(diners);
   if (!cleaned.length) return session?.diners || [];
@@ -1971,6 +1982,10 @@ function staffSessionView(session) {
     assignedStaffId: session.assignedStaffId || '',
     assignedStaffName: session.assignedStaffName || '',
     takenAt: session.takenAt || '',
+    diners: session.diners || [],
+    splitMode: session.splitMode || '',
+    dinersCount: session.dinersCount || 0,
+    itemDiners: session.itemDiners || {},
     createdAt: session.createdAt,
     updatedAt: session.updatedAt
   };
@@ -3640,6 +3655,26 @@ app.post('/api/staff/tables/:tableId/close', requireStaff, (req, res) => {
   if (!result) return res.status(404).json({ ok: false, message: 'No se pudo cerrar la mesa' });
   writeDb(db);
   res.json({ ok: true, ...result });
+});
+
+app.post('/api/staff/tables/:tableId/split', requireStaff, (req, res) => {
+  const db = readDb();
+  const session = activeSessionForTable(db, req.params.tableId);
+  if (!session) return res.status(404).json({ ok: false, message: 'No hay sesión activa en esta mesa' });
+  if (session.assignedStaffId && session.assignedStaffId !== req.session.staffId) {
+    return res.status(403).json({ ok: false, message: `Solo ${session.assignedStaffName || 'el mesero asignado'} puede organizar la división de esta mesa` });
+  }
+  if (req.body.diners !== undefined) updateSessionDiners(session, req.body.diners);
+  if (['equal', 'items', ''].includes(req.body.splitMode)) session.splitMode = req.body.splitMode;
+  if (req.body.dinersCount !== undefined) {
+    session.dinersCount = Math.max(0, Math.min(40, Math.floor(cleanNumber(req.body.dinersCount, 0))));
+  }
+  if (req.body.itemDiners !== undefined) {
+    session.itemDiners = normalizeItemDinerMap(req.body.itemDiners);
+  }
+  session.updatedAt = nowIso();
+  writeDb(db);
+  res.json({ ok: true, session: staffSessionView(session) });
 });
 
 app.post('/api/staff/tables/:tableId/release', requireStaff, (req, res) => {

@@ -123,8 +123,25 @@
   <div id="staffBillModal" class="modal-backdrop" style="display:none;"></div>
   <div id="staffPaymentModal" class="modal-backdrop" style="display:none;"></div>
 
+  <div id="staffSplitModal" class="modal-backdrop" style="display:none;">
+    <div class="modal">
+      <div class="section-head">
+        <div>
+          <h2 style="margin:0;">Dividir cuenta</h2>
+          <p id="staffSplitTableName" class="muted" style="margin:6px 0 0;">Mesa</p>
+        </div>
+        <button class="btn ghost small" onclick="closeStaffSplitModal()">Cerrar</button>
+      </div>
+      <p class="muted" style="line-height:1.5; margin-top:0;">Solo para organizar entre comensales. El cobro y cierre de la mesa se sigue haciendo en Caja/Admin.</p>
+      <div id="staffSplitBody"></div>
+      <div class="inline-actions end" style="margin-top:16px; position:sticky; bottom:0; background:var(--panel); padding-top:12px;">
+        <button class="btn ghost" onclick="closeStaffSplitModal()">Cancelar</button>
+        <button class="btn success" onclick="submitStaffSplit()">Guardar división</button>
+      </div>
+    </div>
+  </div>
 
   <script src="/aurea-print-bridge.js?v=0.9.23"></script>
-  <script src="/staff.js?v=0.9.22"></script>
+  <script src="/staff.js?v=0.9.24"></script>
 </body>
 </html>

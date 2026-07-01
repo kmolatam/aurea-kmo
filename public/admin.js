@@ -9,7 +9,7 @@ let currentAdminDiscountTableId = '';
 let currentAdminCompTableId = '';
 let currentPaymentEditId = '';
 const qrCache = new Map();
-const ADMIN_JS_VERSION = '0.9.23-descuento-cortesia';
+const ADMIN_JS_VERSION = '0.9.24-descuento-pago';
 
 function money(value) {
   return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(value || 0);
@@ -712,6 +712,8 @@ function activeAdminOrdersForTable(tableId) {
 }
 
 function adminBillLinesForTable(tableId) {
+  const session = (db.tableSessions || []).find(item => item.tableId === tableId && item.status === 'active');
+  const itemDiners = session?.itemDiners || {};
   const lines = [];
   for (const order of activeAdminOrdersForTable(tableId)) {
     (order.items || []).forEach((item, itemIndex) => {
@@ -730,11 +732,40 @@ function adminBillLinesForTable(tableId) {
         complimentary: Boolean(item.complimentary),
         complimentaryReason: item.complimentaryReason || '',
         originalPrice: Number(item.originalPrice || 0),
-        dinerName: ''
+        dinerName: itemDiners[`${order.id}:${itemIndex}`] || ''
       });
     });
   }
   return lines;
+}
+
+function adminSplitInfoForTable(tableId) {
+  const session = (db.tableSessions || []).find(item => item.tableId === tableId && item.status === 'active');
+  if (!session) return null;
+  const itemDiners = session.itemDiners || {};
+  if (session.splitMode === 'items' && Object.keys(itemDiners).length > 0) {
+    const byDiner = {};
+    adminBillLinesForTable(tableId).forEach(line => {
+      const name = line.dinerName || 'Sin asignar';
+      byDiner[name] = (byDiner[name] || 0) + Number(line.subtotal || 0);
+    });
+    return { mode: 'items', byDiner };
+  }
+  if (session.splitMode === 'equal' && Number(session.dinersCount || 0) > 1) {
+    const { total } = adminBillTotalsForTable(tableId);
+    const dinersCount = Number(session.dinersCount || 0);
+    return { mode: 'equal', dinersCount, perHead: dinersCount > 0 ? total / dinersCount : 0 };
+  }
+  return null;
+}
+
+function adminSplitInfoHtml(tableId) {
+  const info = adminSplitInfoForTable(tableId);
+  if (!info) return '';
+  const body = info.mode === 'items'
+    ? Object.entries(info.byDiner).map(([name, subtotal]) => `${escapeHtml(name)}: ${money(subtotal)}`).join(' · ')
+    : `${info.dinersCount} personas · ${money(info.perHead)} c/u`;
+  return `<div class="item-meta">División del mesero: ${body}</div>`;
 }
 
 function suggestedTipAmount(total, percent) {
@@ -1850,7 +1881,7 @@ function adminTipsEnabled() {
 }
 
 function adminPaymentAmounts() {
-  const { total } = adminBillTotalsForTable(currentAdminPaymentTableId);
+  const { subtotal, discountPercent, discountAmount, total } = adminBillTotalsForTable(currentAdminPaymentTableId);
   let method = document.getElementById('adminPaymentMethod')?.value || 'cash';
   let received = Math.max(0, Number(document.getElementById('adminPaymentReceived')?.value || 0));
   if (total <= 0) {
@@ -1865,14 +1896,14 @@ function adminPaymentAmounts() {
   const changeAmount = method === 'cash' && !useTip ? diff : 0;
   const insufficient = received + 0.001 < total;
   const invalidOverpay = method !== 'cash' && diff > 0 && !useTip;
-  return { total, method, received, diff, tipAmount, changeAmount, insufficient, invalidOverpay };
+  return { subtotal, discountPercent, discountAmount, total, method, received, diff, tipAmount, changeAmount, insufficient, invalidOverpay };
 }
 
 function renderAdminPaymentPreview() {
   const preview = document.getElementById('adminPaymentPreview');
   const submit = document.getElementById('adminPaymentSubmitBtn');
   if (!preview || !submit) return;
-  const { total, method, received, tipAmount, changeAmount, insufficient, invalidOverpay } = adminPaymentAmounts();
+  const { subtotal, discountPercent, discountAmount, total, method, received, tipAmount, changeAmount, insufficient, invalidOverpay } = adminPaymentAmounts();
   const methodSelect = document.getElementById('adminPaymentMethod');
   const receivedInput = document.getElementById('adminPaymentReceived');
   if (methodSelect && methodSelect.value !== method) methodSelect.value = method;
@@ -1886,15 +1917,21 @@ function renderAdminPaymentPreview() {
   if (insufficient) warnings.push('Monto insuficiente: no se puede cerrar la cuenta.');
   if (invalidOverpay) warnings.push('En tarjeta/transferencia captura el total exacto o registra el excedente como propina.');
   submit.disabled = insufficient || invalidOverpay || !currentAdminPaymentTableId;
+  const discountRow = discountAmount > 0 || discountPercent > 0
+    ? `<div class="item-meta">Descuento ${escapeHtml(discountPercent)}%: <strong>-${money(discountAmount)}</strong></div>`
+    : '';
   preview.innerHTML = `
     <div class="item">
       <div class="item-main">
         <div class="item-title">Resumen de pago</div>
         <div class="item-meta">Método: ${escapeHtml(paymentMethodName(method))}</div>
+        <div class="item-meta">Subtotal: <strong>${money(subtotal)}</strong></div>
+        ${discountRow}
         <div class="item-meta">Total cuenta: <strong>${money(total)}</strong></div>
         <div class="item-meta">Recibido: <strong>${money(received)}</strong></div>
         <div class="item-meta">Propina: <strong>${money(tipAmount)}</strong></div>
         <div class="item-meta">Cambio: <strong>${money(changeAmount)}</strong></div>
+        ${adminSplitInfoHtml(currentAdminPaymentTableId)}
         ${warnings.map(warning => `<div class="item-meta" style="color:#ffb4b4;">${escapeHtml(warning)}</div>`).join('')}
       </div>
     </div>

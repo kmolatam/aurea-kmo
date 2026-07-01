@@ -3,11 +3,13 @@ let refreshTimer = null;
 let currentStaffOrderTableId = null;
 let currentOrderMode = 'session';
 let currentPaymentTableId = null;
+let currentStaffSplitTableId = null;
+let staffSplitDraft = null;
 let currentStaffOrderDraft = [];
 let currentStaffCategoryId = '';
 let currentStaffEditingItemId = '';
 let guidedTourState = null;
-const STAFF_JS_VERSION = '0.9.22-mesero-simple';
+const STAFF_JS_VERSION = '0.9.24-dividir-cuenta';
 let notificationsBaselineReady = false;
 const seenAlertIds = new Set();
 const seenOrderIds = new Set();
@@ -415,16 +417,19 @@ function renderSessions() {
 
   el.innerHTML = sessions.map(session => {
     const mine = session.assignedStaffId === staffId;
+    const splitStatus = mine ? staffSplitStatusLabel(session.tableId) : '';
+    const hasBill = mine && staffTableItemCount(session.tableId) > 0;
     return `
       <div class="item">
         <div class="item-main">
           <div class="item-title">${escapeHtml(session.tableName)} · ${escapeHtml(session.customerName || 'Cliente sin nombre')}</div>
           <div class="item-meta">${session.customerPhone ? `WhatsApp: ${escapeHtml(session.customerPhone)} · ` : ''}${mine ? 'Asignada a ti' : 'Sin asignar'} · ${dateTime(session.createdAt)}</div>
-          <div class="item-meta" style="margin-top:6px;">Cuenta y pago se gestionan en Caja/Admin.</div>
+          <div class="item-meta" style="margin-top:6px;">Cuenta y pago se gestionan en Caja/Admin.${splitStatus ? ` · <strong>${escapeHtml(splitStatus)}</strong>` : ''}</div>
         </div>
         <div class="inline-actions end">
           ${mine ? `
             <button class="btn small secondary" onclick="openStaffOrderModal('${session.tableId}')">Nuevo pedido</button>
+            ${hasBill ? `<button class="btn small ghost" onclick="openStaffSplitModal('${session.tableId}')">Dividir cuenta</button>` : ''}
           ` : '<span class="pill">Caja/Admin asigna mesa</span>'}
         </div>
       </div>
@@ -463,6 +468,10 @@ function staffTableSubtotal(tableId) {
   if (!session) return 0;
   const orders = (staffDb.orders || []).filter(order => order.tableId === tableId && order.status !== 'cancelled' && order.closedWithTable !== true && (!order.sessionId || order.sessionId === session.id));
   return orders.reduce((sum, order) => sum + Number(order.total || 0), 0);
+}
+
+function staffTableItemCount(tableId) {
+  return billLinesForTable(tableId).reduce((sum, line) => sum + Number(line.qty || 0), 0);
 }
 
 
@@ -529,6 +538,168 @@ function openStaffPaymentModal(tableId) {
 function closeStaffPaymentModal() {
   currentPaymentTableId = null;
   document.getElementById('staffPaymentModal').classList.remove('active');
+}
+
+function itemDinerKey(line) {
+  return `${line.orderId}:${line.itemIndex}`;
+}
+
+function staffSplitLinesForTable(tableId) {
+  const session = (staffDb.tableSessions || []).find(item => item.tableId === tableId && item.status === 'active');
+  const itemDiners = session?.itemDiners || {};
+  return billLinesForTable(tableId).map(line => ({
+    ...line,
+    dinerName: itemDiners[`${line.orderId}:${line.itemIndex}`] || ''
+  }));
+}
+
+function staffSplitStatusLabel(tableId) {
+  const session = (staffDb.tableSessions || []).find(item => item.tableId === tableId && item.status === 'active');
+  if (!session) return '';
+  if (session.splitMode === 'items' && Object.keys(session.itemDiners || {}).length) return 'Dividida por producto';
+  if (session.splitMode === 'equal' && Number(session.dinersCount || 0) > 1) return `Dividida entre ${session.dinersCount}`;
+  return '';
+}
+
+function openStaffSplitModal(tableId) {
+  const session = (staffDb.tableSessions || []).find(item => item.tableId === tableId && item.status === 'active');
+  if (!session) return toast('Esta mesa no tiene una sesión activa');
+  const lines = staffSplitLinesForTable(tableId);
+  if (!lines.length) return toast('Esta mesa aún no tiene productos para dividir');
+  currentStaffSplitTableId = tableId;
+  staffSplitDraft = {
+    diners: Array.isArray(session.diners) ? session.diners.slice() : [],
+    splitMode: session.splitMode === 'items' ? 'items' : 'equal',
+    dinersCount: Number(session.dinersCount || 0) || Math.max(2, (session.diners || []).length || 2),
+    itemDiners: { ...(session.itemDiners || {}) }
+  };
+  document.getElementById('staffSplitTableName').textContent = `${session.tableName || 'Mesa'} · organiza sin afectar el cobro`;
+  document.getElementById('staffSplitModal').style.display = 'flex';
+  renderStaffSplitBody();
+}
+
+function closeStaffSplitModal() {
+  currentStaffSplitTableId = null;
+  staffSplitDraft = null;
+  document.getElementById('staffSplitModal').style.display = 'none';
+}
+
+function updateStaffSplitDinersFromInput() {
+  if (!staffSplitDraft) return;
+  const raw = document.getElementById('staffSplitDiners')?.value || '';
+  staffSplitDraft.diners = raw.split(/[,\n]+/).map(name => name.trim()).filter(Boolean).slice(0, 16);
+  renderStaffSplitBody();
+}
+
+function setStaffSplitMode(mode) {
+  if (!staffSplitDraft) return;
+  staffSplitDraft.splitMode = mode === 'items' ? 'items' : 'equal';
+  renderStaffSplitBody();
+}
+
+function adjustStaffSplitDinersCount(delta) {
+  if (!staffSplitDraft) return;
+  staffSplitDraft.dinersCount = Math.max(2, Math.min(40, Number(staffSplitDraft.dinersCount || 2) + delta));
+  renderStaffSplitBody();
+}
+
+function setStaffSplitItemDiner(key, dinerName) {
+  if (!staffSplitDraft) return;
+  if (dinerName) staffSplitDraft.itemDiners[key] = dinerName;
+  else delete staffSplitDraft.itemDiners[key];
+  renderStaffSplitBody();
+}
+
+function staffSplitDinerOptions(selected) {
+  const names = staffSplitDraft?.diners || [];
+  return `<option value="">Sin asignar</option>${names.map(name => `<option value="${escapeHtml(name)}" ${name === selected ? 'selected' : ''}>${escapeHtml(name)}</option>`).join('')}`;
+}
+
+function renderStaffSplitBody() {
+  const el = document.getElementById('staffSplitBody');
+  if (!el || !staffSplitDraft || !currentStaffSplitTableId) return;
+  const lines = staffSplitLinesForTable(currentStaffSplitTableId);
+  const totalQty = lines.reduce((sum, line) => sum + Number(line.qty || 0), 0);
+  const dinersText = staffSplitDraft.diners.join(', ');
+
+  let modeBody = '';
+  if (staffSplitDraft.splitMode === 'items') {
+    const byDiner = {};
+    lines.forEach(line => {
+      const key = itemDinerKey(line);
+      const name = staffSplitDraft.itemDiners[key] || '';
+      const label = name || 'Sin asignar';
+      byDiner[label] = (byDiner[label] || 0) + Number(line.qty || 0);
+    });
+    modeBody = `
+      <div class="list" style="margin-top:10px;">
+        ${lines.map(line => {
+          const key = itemDinerKey(line);
+          const selected = staffSplitDraft.itemDiners[key] || '';
+          return `
+            <div class="item">
+              <div class="item-main">
+                <div class="item-title">${escapeHtml(line.qty)}× ${escapeHtml(line.name)}</div>
+                <div class="item-meta">${line.modifierName ? `${escapeHtml(line.modifierGroupName || 'Opción')}: ${escapeHtml(line.modifierName)}` : ''}${line.note ? ` · Nota: ${escapeHtml(line.note)}` : ''}</div>
+              </div>
+              <select onchange="setStaffSplitItemDiner('${escapeHtml(key)}', this.value)">${staffSplitDinerOptions(selected)}</select>
+            </div>
+          `;
+        }).join('')}
+      </div>
+      <div class="item-meta" style="margin-top:10px;"><strong>Resumen por comensal</strong></div>
+      <div class="list">
+        ${Object.entries(byDiner).map(([name, qty]) => `
+          <div class="item"><div class="item-main"><div class="item-title">${escapeHtml(name)}</div></div><strong>${qty} producto${qty === 1 ? '' : 's'}</strong></div>
+        `).join('')}
+      </div>
+    `;
+  } else {
+    const count = Math.max(1, Number(staffSplitDraft.dinersCount || 1));
+    modeBody = `
+      <div class="quick-qty-row" style="margin-top:10px;">
+        <label>¿Entre cuántas personas?
+          <div class="qty-stepper">
+            <button type="button" class="btn ghost small" onclick="adjustStaffSplitDinersCount(-1)">−</button>
+            <input class="input" type="number" min="2" max="40" value="${count}" readonly />
+            <button type="button" class="btn ghost small" onclick="adjustStaffSplitDinersCount(1)">+</button>
+          </div>
+        </label>
+      </div>
+      <div class="item-meta" style="margin-top:10px;">${totalQty} producto${totalQty === 1 ? '' : 's'} en la mesa. Caja/Admin calculará el monto por persona al cobrar.</div>
+    `;
+  }
+
+  el.innerHTML = `
+    <label>Nombres de los comensales (separados por coma)
+      <input id="staffSplitDiners" class="input" placeholder="Ej. Juan, María, Pedro" value="${escapeHtml(dinersText)}" onchange="updateStaffSplitDinersFromInput()" />
+    </label>
+    <div class="inline-actions" style="margin-top:10px;">
+      <button type="button" class="btn small ${staffSplitDraft.splitMode !== 'items' ? 'success' : 'secondary'}" onclick="setStaffSplitMode('equal')">Partes iguales</button>
+      <button type="button" class="btn small ${staffSplitDraft.splitMode === 'items' ? 'success' : 'secondary'}" onclick="setStaffSplitMode('items')">Por producto</button>
+    </div>
+    ${modeBody}
+  `;
+}
+
+async function submitStaffSplit() {
+  if (!currentStaffSplitTableId || !staffSplitDraft) return;
+  try {
+    await api(`/api/staff/tables/${currentStaffSplitTableId}/split`, {
+      method: 'POST',
+      body: JSON.stringify({
+        diners: staffSplitDraft.diners,
+        splitMode: staffSplitDraft.splitMode,
+        dinersCount: staffSplitDraft.dinersCount,
+        itemDiners: staffSplitDraft.itemDiners
+      })
+    });
+    toast('División guardada. Caja/Admin la verá al cobrar.');
+    closeStaffSplitModal();
+    await loadStaffData();
+  } catch (error) {
+    toast(error.message);
+  }
 }
 
 async function submitStaffPayment() {
