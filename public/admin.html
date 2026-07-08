@@ -740,8 +740,11 @@
       </div>
 
       <div class="grid" style="margin-top:14px;">
-        <label class="col-6">Porcentaje de descuento
+        <label class="col-6">Porcentaje
           <input id="adminDiscountPercent" class="input" type="number" min="0" max="100" step="0.01" placeholder="0" oninput="renderAdminDiscountPreview()" />
+        </label>
+        <label class="col-6">O cantidad fija
+          <input id="adminDiscountAmount" class="input" type="number" min="0" step="0.01" placeholder="0" oninput="renderAdminDiscountPreview()" />
         </label>
         <label class="col-12" id="adminDiscountReasonRow" style="display:none;">Motivo de descuento total / cortesía
           <input id="adminDiscountReason" class="input" placeholder="Ej. Cortesía dueño, invitación, compensación..." oninput="renderAdminDiscountPreview()" />
@@ -880,6 +883,14 @@
       </div>
 
       <div id="adminPaymentPreview" class="list" style="margin-top:14px;"></div>
+
+      <div style="margin-top:14px;padding:8px;background:#1a2a1f;border-radius:4px;display:none;" id="existingPaymentAlert">
+        <div style="color:#8fe3a3;font-size:0.9em;margin-bottom:8px;">⚠️ Ya existe un pago registrado en esta mesa. Puedes editarlo o capturar uno nuevo.</div>
+        <div class="inline-actions" style="gap:8px;">
+          <button class="btn small secondary btn-edit-existing-payment" type="button" style="display:none;" onclick="editExistingTablePayment(currentAdminPaymentTableId)">Editar pago anterior</button>
+          <button class="btn small danger btn-cancel-existing-payment" type="button" style="display:none;" onclick="cancelExistingTablePayment(currentAdminPaymentTableId)">Cancelar pago anterior</button>
+        </div>
+      </div>
 
       <div class="inline-actions end" style="margin-top:16px;">
         <button class="btn ghost" type="button" onclick="closeAdminPaymentModal()">Cancelar</button>

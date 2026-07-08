@@ -1757,11 +1757,27 @@ function discountPercentInputValue() {
 
 function adminDiscountAmounts() {
   const { subtotal } = adminBillTotalsForTable(currentAdminDiscountTableId);
-  const discountPercent = discountPercentInputValue();
-  const validPercent = Number.isFinite(discountPercent) && discountPercent >= 0 && discountPercent <= 100;
-  const discountAmount = validPercent ? Math.min(subtotal, suggestedTipAmount(subtotal, discountPercent)) : 0;
+  const discountPercentInput = Number(document.getElementById('adminDiscountPercent')?.value || 0);
+  const discountAmountInput = Number(document.getElementById('adminDiscountAmount')?.value || 0);
+
+  let discountPercent = 0;
+  let discountAmount = 0;
+  let validPercent = false;
+
+  if (discountAmountInput > 0) {
+    // Use fixed amount
+    discountAmount = Math.min(subtotal, discountAmountInput);
+    discountPercent = subtotal > 0 ? Math.round((discountAmount / subtotal) * 100 * 100) / 100 : 0;
+    validPercent = true;
+  } else if (discountPercentInput >= 0) {
+    // Use percentage
+    validPercent = Number.isFinite(discountPercentInput) && discountPercentInput >= 0 && discountPercentInput <= 100;
+    discountPercent = discountPercentInput;
+    discountAmount = validPercent ? Math.min(subtotal, suggestedTipAmount(subtotal, discountPercent)) : 0;
+  }
+
   const total = Math.max(0, subtotal - discountAmount);
-  const fullDiscount = validPercent && discountPercent >= 100;
+  const fullDiscount = discountPercent >= 100;
   const reason = document.getElementById('adminDiscountReason')?.value.trim() || '';
   return { subtotal, discountPercent, validPercent, discountAmount, total, fullDiscount, reason };
 }
@@ -1799,6 +1815,7 @@ function applyAdminDiscountForTable(tableId) {
   const tableName = totals.session?.tableName || totals.table?.name || 'Mesa';
   document.getElementById('adminDiscountTableName').textContent = `${tableName} · Caja/Admin`;
   document.getElementById('adminDiscountPercent').value = String(totals.discountPercent || 0);
+  document.getElementById('adminDiscountAmount').value = '0';
   document.getElementById('adminDiscountReason').value = totals.payment?.discountReason || '';
   document.getElementById('adminDiscountModal').classList.add('active');
   renderAdminDiscountPreview();
@@ -1944,6 +1961,14 @@ function openAdminPaymentModal(tableId) {
   if (!totals.lines.length) return toast('Esa mesa aún no tiene productos');
   currentAdminPaymentTableId = tableId;
   const tableName = totals.session?.tableName || totals.table?.name || 'Mesa';
+
+  const existingPayment = (db.payments || []).find(p =>
+    p.tableId === tableId && ['pending_admin', 'approved'].includes(p.status)
+  );
+
+  const alertEl = document.getElementById('existingPaymentAlert');
+  if (alertEl) alertEl.style.display = existingPayment ? 'block' : 'none';
+
   document.getElementById('adminPaymentTableName').textContent = `${tableName} · Caja/Admin`;
   document.getElementById('adminPaymentTotal').textContent = money(totals.total);
   document.getElementById('adminPaymentMethod').value = totals.total <= 0 ? 'courtesy' : 'cash';
@@ -1957,6 +1982,21 @@ function openAdminPaymentModal(tableId) {
 function closeAdminPaymentModal() {
   currentAdminPaymentTableId = '';
   document.getElementById('adminPaymentModal')?.classList.remove('active');
+}
+
+function editExistingTablePayment(tableId) {
+  const payment = (db.payments || []).find(p => p.tableId === tableId && ['pending_admin', 'approved'].includes(p.status));
+  if (!payment) return toast('No hay pago para editar');
+  closeAdminPaymentModal();
+  openAdminPaymentEditModal(payment.id);
+}
+
+function cancelExistingTablePayment(tableId) {
+  const payment = (db.payments || []).find(p => p.tableId === tableId && ['pending_admin', 'approved'].includes(p.status));
+  if (!payment) return toast('No hay pago para cancelar');
+  if (payment.status === 'cancelled') return toast('Este pago ya está cancelado');
+  closeAdminPaymentModal();
+  cancelHistoryPayment(payment.id);
 }
 
 function submitAdminPayment() {
