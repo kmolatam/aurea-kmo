@@ -1450,6 +1450,41 @@ async function copyDailyCloseSummary() {
   }
 }
 
+function printDailyCloseSummary() {
+  const text = dailyCloseText();
+  if (!text) return toast('No hay datos para imprimir');
+  const bridge = window.AureaPrintBridge;
+  if (!bridge || typeof bridge.print !== 'function') {
+    return toast('Sistema de impresión no disponible');
+  }
+  const ticketLines = text.split('\n').map((line, i) => ({
+    line,
+    center: i === 0, // Título centrado
+    separator: line === '' ? true : false
+  }));
+  const ticketObj = {
+    title: 'CORTE DIARIO',
+    content: text,
+    lines: ticketLines
+  };
+  try {
+    bridge.print({
+      jobId: `corte-${Date.now()}`,
+      type: 'text',
+      content: text,
+      callback: function(success) {
+        if (success) {
+          toast('Corte enviado a imprimir');
+        } else {
+          toast('Error al enviar corte a imprimir');
+        }
+      }
+    });
+  } catch (error) {
+    toast(`Error: ${error.message}`);
+  }
+}
+
 
 function renderCategories() {
   const select = document.getElementById('itemCategory');
